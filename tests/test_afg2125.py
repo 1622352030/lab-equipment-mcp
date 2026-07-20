@@ -166,6 +166,19 @@ def test_output_enable_requires_explicit_confirmation() -> None:
     assert backend.writes == ["SOURce1:OUTPut OFF", "SOURce1:OUTPut ON"]
 
 
+def test_sync_output_enable_requires_explicit_confirmation() -> None:
+    backend = FakeBackend()
+    driver = connected_driver(backend)
+    with pytest.raises(ValueError, match="TTL-level compatibility"):
+        driver.set_sync_output(True)
+    driver.set_sync_output(False)
+    driver.set_sync_output(True, confirm_enable=True)
+    assert backend.writes == [
+        "SOURce1:OUTPut:SYNC OFF",
+        "SOURce1:OUTPut:SYNC ON",
+    ]
+
+
 def test_settings_require_output_to_be_disabled() -> None:
     backend = FakeBackend()
     backend.responses["SOURCE1:OUTPUT?"] = "1"

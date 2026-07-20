@@ -197,6 +197,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `afg2125_upload_arbitrary_waveform`：下载 2–4096 个 `-511..511` 整数点
 - `afg2125_select_arbitrary_waveform`：选择已下载的任意波形
 - `afg2125_set_output`：关闭输出，或经过显式确认后开启输出
+- `afg2125_set_sync_output`：独立关闭 SYNC，或确认 TTL 兼容后开启 SYNC
 - `afg2125_query_scpi`、`afg2125_write_scpi`：受保护的通用 SCPI 接口
 
 示例提示词：

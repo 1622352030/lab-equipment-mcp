@@ -173,6 +173,20 @@ def afg2125_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str,
     }
 
 
+@mcp.tool(name="afg2125_set_sync_output", annotations=STATE_CHANGE)
+def afg2125_set_sync_output(enabled: bool, confirm_enable: bool = False) -> dict[str, Any]:
+    """Disable SYNC freely, or enable its TTL signal only after explicit confirmation."""
+    state = afg2125.set_sync_output(enabled, confirm_enable=confirm_enable)
+    return {
+        "requested_enabled": state,
+        "verification": (
+            "Command sent. This AFG-2125 did not return a response to the documented SYNC "
+            "state query, so verify the front-panel SYNC connector with the receiving device "
+            "or an oscilloscope when confirmation is required."
+        ),
+    }
+
+
 @mcp.tool(name="afg2125_query_scpi", annotations=READ_ONLY)
 def afg2125_query_scpi(command: str) -> dict[str, str]:
     """Send a read-only SCPI query to the connected AFG-2125."""

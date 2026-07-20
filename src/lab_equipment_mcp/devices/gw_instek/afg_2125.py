@@ -271,6 +271,16 @@ class AFG2125:
         self.backend.write(f"SOURce1:OUTPut {'ON' if enabled else 'OFF'}")
         return enabled
 
+    def set_sync_output(self, enabled: bool, *, confirm_enable: bool = False) -> bool:
+        self._require_connected()
+        if enabled and not confirm_enable:
+            raise ValueError(
+                "Enabling the SYNC output requires confirm_enable=true after checking the "
+                "connected device and TTL-level compatibility."
+            )
+        self.backend.write(f"SOURce1:OUTPut:SYNC {'ON' if enabled else 'OFF'}")
+        return enabled
+
     def query(self, command: str) -> str:
         self._require_connected()
         command = validate_scpi(command)
