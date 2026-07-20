@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dpo2012b-mcp"
+version = "0.1.0"
+description = "MCP server for Tektronix DPO2012B oscilloscopes over USBTMC/VISA"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Local project" }]
+dependencies = [
+  "mcp>=1.28.1,<2",
+  "pyvisa>=1.15,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+start-dpo2012b-mcp = "dpo2012b_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dpo2012b_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
