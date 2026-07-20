@@ -18,7 +18,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Vendor | Model | Interface | Status |
 | --- | --- | --- | --- |
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
-| GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Read-only tested on real hardware |
+| GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.
@@ -41,7 +41,7 @@ src/lab_equipment_mcp/
 |       `-- dpo2012b.py          # DPO2012B identity, measurements, waveform
 |   `-- gw_instek/
 |       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL diagnostics
-|       `-- afg_2125.py          # AFG-2125 settings, safety, and ARB download
+|       `-- afg_2125.py          # AFG-2125 waveform, modulation, sweep, ARB, and safety
 `-- server.py                    # MCP tool registration
 ```
 
@@ -56,6 +56,8 @@ Use the repository's
 a new model or another interface to an existing model. It covers manuals, cabling,
 driver diagnostics, automated/manual dependency installation, fork and feature-branch
 workflow, multi-interface modeling, hardware acceptance, and contribution quality gates.
+It also captures SCPI command-tree review, write/read-back verification, firmware-quirk
+handling, and oscilloscope closed-loop acceptance lessons.
 
 Example:
 
@@ -137,12 +139,23 @@ codex mcp add lab-equipment -- $uv --directory $PWD run start-lab-equipment-mcp
 
 ## Update
 
-The registration runs the selected Git branch through `uvx`. To force-refresh
-the cached source after an update:
+The registration runs the selected Git branch through `uvx`. Prefer `uvx --refresh`
+to fetch `main` again and rebuild the execution environment:
+
+```powershell
+$uvx = (Get-Command uvx).Source
+& $uvx --refresh --from git+https://github.com/1622352030/lab-equipment-mcp.git@main start-lab-equipment-mcp --help
+```
+
+You can also clear the package cache:
 
 ```powershell
 uv cache clean lab-equipment-mcp
 ```
+
+On Windows, `uv cache clean` can wait on cache locks held by a running MCP/`uvx`
+process. Disconnect instruments and fully exit Codex Desktop before retrying, or use
+`uvx --refresh`. Check the Git commit printed by `uvx` to confirm the built version.
 
 Then completely restart Codex Desktop and create a new task.
 
@@ -189,6 +202,11 @@ installation does not enable unsafe commands.
 
 ## AFG-2125 Tools
 
+The AFG-2125 implementation covers basic waveforms, AM, FM, FSK, sweep, and ARB.
+Standard configuration tools require MAIN to be disabled, verify settings by SCPI
+read-back where the firmware supports it, and require an explicit confirmed call to
+enable MAIN afterward.
+
 - `afg2125_diagnose_setup`: check the GW Instek CDC driver, COM port, and VISA ASRL
 - `afg2125_connect`: use bounded PnP matching or connect an explicit resource
 - `afg2125_identify`, `afg2125_disconnect`: identify or disconnect only the AFG-2125
@@ -215,6 +233,28 @@ inside one MCP process. `disconnect_instrument` closes every instrument; use
 AM, FM, FSK, sweep, and ARB have completed real-hardware closed-loop acceptance on
 AFG-2125 firmware V1.11 using internal sources. The external MOD/TRIG input paths
 remain physically untested; see the device guide.
+
+Known V1.11 differences: `SOURce1:SWEep:TIME?` times out although the setting takes
+effect and has been verified at the output; the immediate/internal sweep source can
+read back as `INT` instead of the manual's `IMM`. Remote SYNC switching was not proven
+on this firmware, so the server does not expose a tool that could falsely report success.
+
+Example prompts:
+
+```text
+With MAIN disabled, configure 10 kHz carrier AM with a 20 Hz internal sine source and
+50% depth. Read the parameters back, then ask before enabling output.
+```
+
+```text
+Configure a 1 kHz to 5 kHz, 0.5 second linear immediate sweep. Verify the actual range
+using the DPO2012B CH1 SYNC signal, then restore the original output state.
+```
+
+```text
+Upload an 8-point ARB waveform at 1 kHz, validate the waveform-rate limit, and leave
+MAIN disabled.
+```
 
 The manual's `APPLy` commands automatically enable output, so the standard
 AFG-2125 configuration tools do not use them. Output enable requires

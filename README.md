@@ -17,7 +17,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | 厂商 | 型号 | 通信接口 | 验证状态 |
 | --- | --- | --- | --- |
 | Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
-| GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 已通过真实设备只读验证 |
+| GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
 协议，并不是串口 COM 设备，因此不能使用普通串口 MCP 控制。
@@ -40,7 +40,7 @@ src/lab_equipment_mcp/
 |       `-- dpo2012b.py          # DPO2012B 识别、测量和波形读取
 |   `-- gw_instek/
 |       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL 环境诊断
-|       `-- afg_2125.py          # AFG-2125 配置、输出保护和任意波形下载
+|       `-- afg_2125.py          # AFG-2125 波形、调制、扫频、ARB 和输出保护
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -60,6 +60,7 @@ Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已�
 - 判断依赖可否自动安装，或要求用户从厂商官网下载
 - Fork、克隆、建立功能分支和提交 Pull Request 的开发流程
 - 多接口建模、测试要求、真实设备验收和代码质量门槛
+- SCPI 命令树核对、写入后回读、固件兼容记录和示波器闭环验收经验
 
 显式调用示例：
 
@@ -145,11 +146,23 @@ codex mcp add lab-equipment -- $uv --directory $PWD run start-lab-equipment-mcp
 
 ## 更新
 
-GitHub 安装方式通过 `uvx` 启动指定分支。需要强制刷新缓存时执行：
+GitHub 安装方式通过 `uvx` 启动指定分支。优先使用 `uvx --refresh` 强制获取
+远端 `main` 并重建运行环境：
+
+```powershell
+$uvx = (Get-Command uvx).Source
+& $uvx --refresh --from git+https://github.com/1622352030/lab-equipment-mcp.git@main start-lab-equipment-mcp --help
+```
+
+也可以按包名清理缓存：
 
 ```powershell
 uv cache clean lab-equipment-mcp
 ```
+
+如果 Windows 上存在正在运行的 MCP/`uvx` 进程，`uv cache clean` 可能因缓存锁
+长时间等待。此时先断开仪器并完全退出 Codex Desktop，再重试；或直接使用上面的
+`uvx --refresh`。可通过输出中的 Git 提交号确认实际构建版本。
 
 然后完全重启 Codex Desktop，并创建一个新任务。
 
@@ -189,6 +202,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 
 ## AFG-2125 工具
 
+AFG-2125 支持基础波形、AM、FM、FSK、Sweep 和任意波形。所有标准配置工具都
+要求 MAIN 先关闭；参数写入后会尽可能通过 SCPI 查询确认，最后再使用
+`afg2125_set_output(confirm_enable=true)` 显式开启输出。
+
 - `afg2125_diagnose_setup`：检查 GW Instek CDC 驱动、COM 口和 VISA ASRL
 - `afg2125_connect`：通过 PnP 匹配自动发现或连接指定 AFG-2125
 - `afg2125_identify`、`afg2125_disconnect`：单独识别或断开 AFG-2125
@@ -215,10 +232,28 @@ DPO2012B 与 AFG-2125 使用独立 VISA 会话，可以在同一个 MCP 进程�
 AM、FM、FSK、Sweep 和 ARB 已在 AFG-2125 固件 V1.11 上使用内部源完成真实
 设备闭环验收。外部 MOD/TRIG 输入尚未接线测试，详见设备说明。
 
+V1.11 已知兼容差异：`SOURce1:SWEep:TIME?` 查询会超时，但时间设置可生效并已
+通过示波器闭环验证；Sweep 内部/立即触发源可能回读为 `INT` 而非手册示例的
+`IMM`。SYNC 远程开关在该固件上未验证成功，因此不提供会误报成功的专用工具。
+
 示例提示词：
 
 ```text
 诊断并连接 AFG-2125，读取当前设置，不要开启输出。
+```
+
+```text
+保持 MAIN 关闭，把 AFG-2125 配置为 10 kHz 载波、20 Hz 内部正弦调制、
+50% 深度的 AM；回读参数后再询问我是否开启输出。
+```
+
+```text
+把 AFG-2125 配置为 1 kHz 到 5 kHz、0.5 秒、线性立即扫频，使用 DPO2012B
+CH1 的 SYNC 信号验证实际频率范围，测试后恢复原来的输出状态。
+```
+
+```text
+向 AFG-2125 上传 8 点任意波，频率设为 1 kHz；检查波形速率限制，先不要开启 MAIN。
 ```
 
 ## 安全机制

@@ -5,6 +5,8 @@
 - [ ] User/operator manual is available and relevant interface sections were read.
 - [ ] Programmer/programming manual or command reference is available.
 - [ ] Manual title, revision, and source are recorded in the device guide.
+- [ ] Relevant PDF pages were visually rendered; command-tree and waveform-figure interpretations
+      are recorded with page numbers.
 - [ ] Restricted manuals are not committed without redistribution permission.
 
 ## Interface and Environment
@@ -21,9 +23,12 @@
 - [ ] Shared behavior is reusable and belongs in `core/`; model-specific behavior does not.
 - [ ] Discovery is bounded and does not blindly probe unrelated RS-232 ports or network hosts.
 - [ ] Connection validates manufacturer/model identity before exposing model tools.
+- [ ] Firmware revision and firmware-specific command quirks are recorded.
 - [ ] Timeouts, termination, serial parameters, and binary transfer settings follow the manual.
 - [ ] MCP tools use model prefixes and correct read-only/state-changing annotations.
 - [ ] Dangerous commands and output-enabling operations are guarded by default.
+- [ ] State-changing writes are read back and compared, or explicitly labeled unverified when the
+      instrument query is unavailable or unreliable.
 - [ ] Existing device APIs remain backward compatible or migration notes are provided.
 
 ## Automated Tests
@@ -42,6 +47,13 @@
 - [ ] Read-only identity succeeds on each interface labeled tested.
 - [ ] At least one representative read operation succeeds.
 - [ ] State-changing tests use safe limits and restore the original state when applicable.
+- [ ] Waveform-producing features use the strongest available evidence: receiver-MCP measurement
+      (preferred), user observation on the connected receiver/front panel (allowed and labeled
+      manual-observed), or SCPI-only configuration evidence (allowed only when clearly labeled
+      unverified physical output).
+- [ ] The report names the evidence level for every tested state-changing waveform feature.
+- [ ] Measurement timebase, trigger source, polarity, and alias/overlap risks are documented for
+      modulation, sweep, SYNC, and non-sinusoidal ARB signals.
 - [ ] Binary/waveform/data transfer is validated when the device exposes it.
 - [ ] Logs and documentation redact device serial numbers unless publication is authorized.
 

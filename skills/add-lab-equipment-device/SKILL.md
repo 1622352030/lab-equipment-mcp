@@ -7,14 +7,18 @@ description: Add or extend laboratory instrument support in the lab-equipment-mc
 
 Add equipment support only after proving the physical interface, host environment, command
 protocol, and acceptance path. Preserve existing devices and keep model-specific behavior isolated.
+For recurring failure patterns from the AFG-2125 implementation, read
+[lessons-learned.md](references/lessons-learned.md) before coding.
 
 ## Workflow
 
 1. Inspect the repository, `README.md`, `src/lab_equipment_mcp/core/`, existing device drivers,
-   tests, and the device documentation tree.
+   tests, and the device documentation tree. Check the current branch and worktree before edits.
 2. Obtain the user manual and programmer/programming manual. Ask the user to download protected or
    vendor-gated manuals. Read the relevant files completely enough to establish interfaces, remote
-   commands, identity response, termination rules, data formats, and safety restrictions.
+   commands, identity response, termination rules, data formats, and safety restrictions. For PDFs,
+   inspect the rendered command-tree and waveform figures as well as extracted text; record exact
+   page numbers and distinguish optional bracket notation from literal command characters.
 3. Confirm with the user which physical interface is connected now. Do not infer USBTMC from a USB
    connector alone; distinguish USB host/device, USBTMC, virtual COM, RS-232, LAN VXI-11, LAN raw
    socket, HiSLIP, GPIB, and vendor-specific transports.
@@ -27,7 +31,8 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
    vendor download, license acceptance, administrator UI, reboot, or manual hardware action, give
    the user the official download link and exact steps, then wait for confirmation.
 6. Establish a read-only connection and identity query before changing instrument settings. Prefer
-   `*IDN?`; use the manual's documented equivalent when SCPI is unsupported.
+   `*IDN?`; use the manual's documented equivalent when SCPI is unsupported. Capture the firmware
+   revision and preserve it in the device guide because command behavior can be firmware-specific.
 7. Prepare Git contribution work before edits. Read [contribution-workflow.md](references/contribution-workflow.md).
    Fork the upstream repository for external contributors, clone the fork, add `upstream`, update
    the default branch, and create a dedicated feature branch. Repository owners may branch directly
@@ -37,12 +42,18 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
    `devices/<vendor>/<model>.py` or a model package.
 9. Prefix MCP tool names with the model or family. Mark read-only and state-changing tools with MCP
    annotations. Block reset, calibration, firmware, file deletion, output-enable, and other risky
-   operations by default unless the project explicitly defines a guarded workflow.
+   operations by default unless the project explicitly defines a guarded workflow. For every
+   state-changing command, verify the requested value by read-back when the instrument supports it;
+   otherwise return an explicit unverified/firmware-quirk result rather than claiming success.
 10. Add the device guide under `docs/<vendor>/<MODEL>.md`. Document manuals used, supported
     interfaces, tested interfaces, cable/pin requirements, driver links with verification dates,
     installation, example prompts, and troubleshooting.
 11. Complete every applicable gate in [acceptance.md](references/acceptance.md). Do not claim an
-    interface is tested when it was only implemented or simulated.
+    interface is tested when it was only implemented or simulated. For waveform sources, prefer a
+    physical receiver MCP (oscilloscope, counter, load, or analyzer) for closed-loop acceptance;
+    if no usable receiver MCP is available, ask the user to observe the panel/connected instrument
+    and record the observation as user-observed, not agent-measured. SCPI read-back alone remains
+    lower-confidence. Restore the original safe state in a `finally` path.
 12. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
     the owner's repository and open/prepare a pull request. Report untested interfaces and residual
     risks explicitly.
@@ -59,6 +70,16 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
   backend only when the manual or environment requires it.
 - Preserve device state during discovery. Separate discovery, connection, read-only queries, and
   state-changing commands.
+- Give independently connected instruments independent transport sessions. A shared VISA backend
+  can silently disconnect one instrument when another is connected.
+- Treat command spelling, command context, termination, firmware, and query support as separate
+  hypotheses. Test long/short forms only after reading the command tree; do not infer a working
+  write from a timeout-prone query.
+- For modulation, sweep, and ARB features, model mutually exclusive modes and waveform-rate or
+  carrier limits explicitly. Validate all inputs before enabling a mode or output.
+- Grade output evidence explicitly: receiver-MCP measurement is automated closed-loop; user visual
+  observation is manual closed-loop; SCPI-only evidence is configuration/read-back evidence and must
+  not be described as physical output validation.
 - Never bundle vendor installers, manuals with restrictive licenses, credentials, serial numbers,
   or captured private lab data into the repository.
 - Keep compatibility with all already-supported equipment. Run the complete suite, not only the new
@@ -72,3 +93,14 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
 - Device-specific guide and supported-equipment table update
 - Real-hardware smoke-test evidence for each interface labeled "tested"
 - Clean Git branch with reviewable commits and no generated/cached artifacts
+
+## AFG-2125-derived acceptance habits
+
+- Confirm the physical shape independently for MAIN and SYNC. A SYNC connector may emit TTL timing
+  pulses rather than a copy of the selected MAIN waveform.
+- Measure positive/negative pulse widths against the period before concluding that a duty-cycle
+  command is inverted. Compare panel setting, SCPI read-back, and receiver measurement.
+- If an old firmware accepts a setting but times out on its documented query, record the exact
+  command, firmware, and external measurement; never fabricate a read-back value.
+- When adding new tools to an installed MCP, refresh the `uvx` source (`uvx --refresh`), then fully
+  restart Codex Desktop and create a new task because existing tasks cache their tool list.
