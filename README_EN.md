@@ -164,7 +164,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `dpo2012b_diagnose_setup`: check USB enumeration, VISA runtime, and PyVISA
 - `list_visa_instruments`: enumerate and optionally identify VISA instruments
 - `dpo2012b_connect`: auto-detect or connect to a DPO2012B VISA resource
-- `disconnect_instrument`, `identify_instrument`
+- `disconnect_instrument`: close every instrument session
+- `identify_instrument`: identify the only connected instrument
+- `dpo2012b_identify`, `dpo2012b_disconnect`: identify or disconnect only the DPO2012B
 - `dpo2012b_get_status`: read acquisition, trigger, and timebase status
 - `dpo2012b_get_channel_settings`: read CH1 or CH2 vertical settings
 - `dpo2012b_measure`: frequency, RMS, period, amplitude, and other measurements
@@ -189,14 +191,30 @@ installation does not enable unsafe commands.
 
 - `afg2125_diagnose_setup`: check the GW Instek CDC driver, COM port, and VISA ASRL
 - `afg2125_connect`: use bounded PnP matching or connect an explicit resource
+- `afg2125_identify`, `afg2125_disconnect`: identify or disconnect only the AFG-2125
 - `afg2125_get_settings`: read function, frequency, amplitude, offset, and unit
+- `afg2125_get_mode_settings`: read AM, FM, FSK, and sweep enable states
 - `afg2125_set_function`, `afg2125_set_frequency`, `afg2125_set_amplitude`,
   `afg2125_set_offset`: configure individual parameters without using `APPLy`
 - `afg2125_set_square_duty`, `afg2125_set_ramp_symmetry`
+- `afg2125_configure_am`, `afg2125_configure_fm`, `afg2125_configure_fsk`,
+  plus the corresponding `set_*_enabled` mode controls
+- `afg2125_configure_sweep`, `afg2125_set_sweep_enabled`: configure sweep
+  boundaries, spacing, time, and trigger source
 - `afg2125_upload_arbitrary_waveform`: upload 2-4096 integer points in `-511..511`
 - `afg2125_select_arbitrary_waveform`: select the downloaded volatile waveform
+- `afg2125_configure_arbitrary_waveform`: upload/select an ARB waveform and enforce
+  the 20 MHz `frequency * point count` waveform-rate limit
 - `afg2125_set_output`: disable output, or enable only with explicit confirmation
 - `afg2125_query_scpi`, `afg2125_write_scpi`: guarded generic SCPI access
+
+The DPO2012B and AFG-2125 use independent VISA sessions and can remain connected
+inside one MCP process. `disconnect_instrument` closes every instrument; use
+`dpo2012b_disconnect` or `afg2125_disconnect` to close only one device.
+
+AM, FM, FSK, sweep, and ARB have completed real-hardware closed-loop acceptance on
+AFG-2125 firmware V1.11 using internal sources. The external MOD/TRIG input paths
+remain physically untested; see the device guide.
 
 The manual's `APPLy` commands automatically enable output, so the standard
 AFG-2125 configuration tools do not use them. Output enable requires

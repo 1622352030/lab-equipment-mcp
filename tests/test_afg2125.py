@@ -23,6 +23,26 @@ class FakeBackend:
             "SOURCE1:DCOFFSET?": "+1.25E+00",
             "SOURCE1:APPLY?": '"SQU +1.00000000E+03,+2.500E+00,+1.25E+00"',
             "SOURCE1:OUTPUT?": "0",
+            "SOURCE1:SQUARE:DCYCLE?": "+8.00E+01",
+            "SOURCE1:AM:STATE?": "0",
+            "SOURCE1:FM:STATE?": "0",
+            "SOURCE1:FSKEY:STATE?": "0",
+            "SOURCE1:SWEEP:STATE?": "0",
+            "SOURCE1:AM:SOURCE?": "INT",
+            "SOURCE1:AM:INTERNAL:FUNCTION?": "SIN",
+            "SOURCE1:AM:INTERNAL:FREQUENCY?": "100",
+            "SOURCE1:AM:DEPTH?": "50",
+            "SOURCE1:FM:SOURCE?": "INT",
+            "SOURCE1:FM:INTERNAL:FUNCTION?": "SIN",
+            "SOURCE1:FM:INTERNAL:FREQUENCY?": "10",
+            "SOURCE1:FM:DEVIATION?": "100",
+            "SOURCE1:FSKEY:SOURCE?": "INT",
+            "SOURCE1:FSKEY:FREQUENCY?": "1000",
+            "SOURCE1:FSKEY:INTERNAL:RATE?": "10",
+            "SOURCE1:FREQUENCY:START?": "100",
+            "SOURCE1:FREQUENCY:STOP?": "1000",
+            "SOURCE1:SWEEP:SPACING?": "LIN",
+            "SOURCE1:SWEEP:SOURCE?": "INT",
         }
 
     def query(self, command: str) -> str:
@@ -30,6 +50,15 @@ class FakeBackend:
 
     def write(self, command: str) -> None:
         self.writes.append(command)
+        upper = command.upper()
+        if upper.startswith("SOURCE1:OUTPUT "):
+            self.responses["SOURCE1:OUTPUT?"] = "1" if upper.endswith(" ON") else "0"
+        for mode in ("AM", "FM", "FSKEY", "SWEEP"):
+            prefix = f"SOURCE1:{mode}:STATE "
+            if upper.startswith(prefix):
+                self.responses[f"SOURCE1:{mode}:STATE?"] = (
+                    "1" if upper.endswith(" ON") else "0"
+                )
 
 
 def connected_driver(backend: FakeBackend) -> AFG2125:
@@ -113,6 +142,126 @@ def test_square_duty_limits(frequency, limits) -> None:
     assert square_duty_limits(frequency) == limits
 
 
+def test_square_duty_is_sent_directly_and_verified_by_readback() -> None:
+    backend = FakeBackend()
+    actual = connected_driver(backend).set_square_duty(80)
+    assert backend.writes[-1] == "SOURce1:SQUare:DCYCle 80"
+    assert actual == 80
+
+
+def test_square_duty_rejects_readback_mismatch() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:SQUARE:DCYCLE?"] = "20"
+    with pytest.raises(ScopeError, match="read-back mismatch"):
+        connected_driver(backend).set_square_duty(80)
+
+
+def test_mode_settings_parse_all_mutually_exclusive_states() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:FM:STATE?"] = "1"
+    assert connected_driver(backend).get_mode_settings() == {
+        "am_enabled": False,
+        "fm_enabled": True,
+        "fsk_enabled": False,
+        "sweep_enabled": False,
+    }
+
+
+def test_mode_state_change_requires_matching_readback() -> None:
+    backend = FakeBackend()
+    backend.write = lambda command: backend.writes.append(command)
+    with pytest.raises(ScopeError, match="mode-state read-back mismatch"):
+        connected_driver(backend).set_am_enabled(True)
+
+
+def test_configure_internal_am_uses_manual_order_and_readback() -> None:
+    backend = FakeBackend()
+    result = connected_driver(backend).configure_am(
+        modulation_function="sine", modulation_frequency_hz=100, depth_percent=50
+    )
+    assert result["enabled"] is True
+    assert result["depth_percent"] == 50
+    assert backend.writes == [
+        "SOURce1:AM:STATe ON",
+        "SOURce1:AM:SOURce INTernal",
+        "SOURce1:AM:INTernal:FUNCtion SINusoid",
+        "SOURce1:AM:INTernal:FREQuency 100",
+        "SOURce1:AM:DEPTh 50",
+    ]
+
+
+def test_configure_external_am_ignores_internal_only_parameters() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:AM:SOURCE?"] = "EXT"
+    result = connected_driver(backend).configure_am(
+        source="external",
+        modulation_function="not-used",
+        modulation_frequency_hz=-1,
+        depth_percent=-1,
+    )
+    assert result == {"enabled": True, "source": "EXT"}
+
+
+def test_configure_fm_checks_carrier_deviation_and_writes_parameters() -> None:
+    backend = FakeBackend()
+    driver = connected_driver(backend)
+    result = driver.configure_fm(deviation_hz=100, modulation_frequency_hz=10)
+    assert result["deviation_hz"] == 100
+    assert backend.writes[0] == "SOURce1:FM:STATe ON"
+    with pytest.raises(ValueError, match="carrier/function limits"):
+        driver.configure_fm(deviation_hz=1001)
+
+
+def test_configure_fsk_validates_rate_and_hop_frequency() -> None:
+    backend = FakeBackend()
+    result = connected_driver(backend).configure_fsk(
+        hop_frequency_hz=1000, rate_hz=10
+    )
+    assert result["hop_frequency_hz"] == 1000
+    assert result["rate_hz"] == 10
+    with pytest.raises(ValueError, match="rate_hz"):
+        connected_driver(backend).configure_fsk(rate_hz=100_001)
+
+
+def test_configure_sweep_supports_direction_spacing_time_and_source() -> None:
+    backend = FakeBackend()
+    result = connected_driver(backend).configure_sweep(
+        start_frequency_hz=100,
+        stop_frequency_hz=1000,
+        sweep_time_s=1,
+        spacing="linear",
+        source="immediate",
+    )
+    assert result["start_frequency_hz"] == 100
+    assert result["stop_frequency_hz"] == 1000
+    assert result["spacing"] == "LIN"
+    assert result["sweep_time_s_requested"] == 1
+    assert "time out" in result["sweep_time_verification"]
+    assert result["source"] == "INT"
+    assert backend.writes[0] == "SOURce1:SWEep:STATe ON"
+    assert "SOURce1:SWEep:TIME 1" in backend.writes
+
+
+def test_configure_arbitrary_waveform_enforces_rate_and_verifies_selection() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:FUNCTION?"] = "ARB"
+    backend.responses["SOURCE1:FREQUENCY?"] = "1000"
+    result = connected_driver(backend).configure_arbitrary_waveform(
+        [-511, 0, 511, 0], frequency_hz=1000
+    )
+    assert result["function"] == "ARB"
+    assert result["waveform_rate_hz"] == 4000
+    assert backend.writes == [
+        "DATA:DAC VOLATILE,0,-511,0,511,0",
+        "SOURce1:FUNCtion USER",
+        "SOURce1:FREQuency 1000",
+    ]
+    with pytest.raises(ValueError, match="20 MHz ARB rate"):
+        connected_driver(FakeBackend()).configure_arbitrary_waveform(
+            [0] * 4096, frequency_hz=10_000
+        )
+
+
 def test_frequency_limits_follow_function() -> None:
     backend = FakeBackend()
     driver = connected_driver(backend)
@@ -154,6 +303,13 @@ def test_arbitrary_waveform_validation_and_command() -> None:
         driver.upload_arbitrary_waveform([0, 512])
     with pytest.raises(ValueError, match="between 2 and 4096"):
         driver.upload_arbitrary_waveform([0])
+
+
+def test_arbitrary_waveform_upload_requires_output_disabled() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:OUTPUT?"] = "1"
+    with pytest.raises(ValueError, match="output is enabled"):
+        connected_driver(backend).upload_arbitrary_waveform([0, 1])
 
 
 def test_output_enable_requires_explicit_confirmation() -> None:

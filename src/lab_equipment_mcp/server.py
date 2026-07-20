@@ -14,9 +14,11 @@ from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_hos
 from .devices.tektronix.diagnostics import diagnose_host
 from .devices.tektronix.dpo2012b import DPO2012B
 
-backend = VisaBackend()
-dpo2012b = DPO2012B(backend)
-afg2125 = AFG2125(backend)
+discovery_backend = VisaBackend()
+dpo2012b_backend = VisaBackend()
+afg2125_backend = VisaBackend()
+dpo2012b = DPO2012B(dpo2012b_backend)
+afg2125 = AFG2125(afg2125_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -51,13 +53,15 @@ def dpo2012b_diagnose_setup() -> dict[str, Any]:
 @mcp.tool(name="afg2125_diagnose_setup", annotations=READ_ONLY)
 def afg2125_diagnose_setup() -> dict[str, Any]:
     """Check the AFG-2125 USB CDC driver, COM port, VISA ASRL, and PyVISA readiness."""
-    return diagnose_afg2125_host(backend)
+    return diagnose_afg2125_host(discovery_backend)
 
 
 @mcp.tool(annotations=READ_ONLY)
 def list_visa_instruments(probe_identity: bool = True) -> list[dict[str, Any]]:
     """List VISA resources and optionally query each instrument identity."""
-    return [item.__dict__ for item in backend.list_resources(probe=probe_identity)]
+    return [
+        item.__dict__ for item in discovery_backend.list_resources(probe=probe_identity)
+    ]
 
 
 @mcp.tool(name="dpo2012b_connect", annotations=STATE_CHANGE)
@@ -67,8 +71,12 @@ def dpo2012b_connect(resource: str | None = None, timeout_ms: int = 5000) -> dic
         raise ValueError("timeout_ms must be between 500 and 30000")
     identity = dpo2012b.connect(resource, timeout_ms)
     return {
-        "resource": backend.resource_name or "",
-        "interface_type": backend.interface_type.value if backend.interface_type else "unknown",
+        "resource": dpo2012b_backend.resource_name or "",
+        "interface_type": (
+            dpo2012b_backend.interface_type.value
+            if dpo2012b_backend.interface_type
+            else "unknown"
+        ),
         "identity": identity,
     }
 
@@ -80,25 +88,76 @@ def afg2125_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict
         raise ValueError("timeout_ms must be between 500 and 30000")
     identity = afg2125.connect(resource, timeout_ms)
     return {
-        "resource": backend.resource_name or "",
-        "interface_type": backend.interface_type.value if backend.interface_type else "unknown",
+        "resource": afg2125_backend.resource_name or "",
+        "interface_type": (
+            afg2125_backend.interface_type.value
+            if afg2125_backend.interface_type
+            else "unknown"
+        ),
         "identity": identity,
     }
 
 
 @mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)
 def disconnect_instrument() -> str:
-    """Close the active VISA connection."""
-    backend.disconnect()
-    return "Disconnected"
+    """Close all active instrument and discovery VISA sessions."""
+    dpo2012b_backend.disconnect()
+    afg2125_backend.disconnect()
+    discovery_backend.disconnect()
+    return "Disconnected all instruments"
+
+
+@mcp.tool(name="dpo2012b_disconnect", annotations=STATE_CHANGE)
+def dpo2012b_disconnect() -> str:
+    """Close only the DPO2012B VISA connection."""
+    dpo2012b_backend.disconnect()
+    return "DPO2012B disconnected"
+
+
+@mcp.tool(name="afg2125_disconnect", annotations=STATE_CHANGE)
+def afg2125_disconnect() -> str:
+    """Close only the AFG-2125 VISA connection."""
+    afg2125_backend.disconnect()
+    return "AFG-2125 disconnected"
 
 
 @mcp.tool(name="identify_instrument", annotations=READ_ONLY)
 def identify_instrument() -> dict[str, str]:
-    """Return the connected instrument identity and VISA resource."""
+    """Identify the only connected instrument; use prefixed tools when both are connected."""
+    connected = [
+        ("DPO2012B", dpo2012b_backend),
+        ("AFG-2125", afg2125_backend),
+    ]
+    connected = [(name, item) for name, item in connected if item.resource_name]
+    if not connected:
+        raise ValueError("No instrument is connected")
+    if len(connected) > 1:
+        raise ValueError(
+            "Multiple instruments are connected; use dpo2012b_identify or afg2125_identify"
+        )
+    name, active_backend = connected[0]
     return {
-        "resource": backend.resource_name or "",
-        "identity": backend.query("*IDN?"),
+        "device": name,
+        "resource": active_backend.resource_name or "",
+        "identity": active_backend.query("*IDN?"),
+    }
+
+
+@mcp.tool(name="dpo2012b_identify", annotations=READ_ONLY)
+def dpo2012b_identify() -> dict[str, str]:
+    """Return the connected DPO2012B identity and VISA resource."""
+    return {
+        "resource": dpo2012b_backend.resource_name or "",
+        "identity": dpo2012b_backend.query("*IDN?"),
+    }
+
+
+@mcp.tool(name="afg2125_identify", annotations=READ_ONLY)
+def afg2125_identify() -> dict[str, str]:
+    """Return the connected AFG-2125 identity and VISA resource."""
+    return {
+        "resource": afg2125_backend.resource_name or "",
+        "identity": afg2125_backend.query("*IDN?"),
     }
 
 
@@ -146,6 +205,100 @@ def afg2125_set_ramp_symmetry(symmetry_percent: float) -> dict[str, float]:
     return {"symmetry_percent": afg2125.set_ramp_symmetry(symmetry_percent)}
 
 
+@mcp.tool(name="afg2125_get_mode_settings", annotations=READ_ONLY)
+def afg2125_get_mode_settings() -> dict[str, Any]:
+    """Read whether AM, FM, FSK, and sweep modes are enabled."""
+    return afg2125.get_mode_settings()
+
+
+@mcp.tool(name="afg2125_configure_am", annotations=STATE_CHANGE)
+def afg2125_configure_am(
+    source: str = "internal",
+    modulation_function: str = "sine",
+    modulation_frequency_hz: float = 100.0,
+    depth_percent: float = 100.0,
+) -> dict[str, Any]:
+    """Enable and configure AM; MAIN output must already be disabled."""
+    return afg2125.configure_am(
+        source=source,
+        modulation_function=modulation_function,
+        modulation_frequency_hz=modulation_frequency_hz,
+        depth_percent=depth_percent,
+    )
+
+
+@mcp.tool(name="afg2125_set_am_enabled", annotations=STATE_CHANGE)
+def afg2125_set_am_enabled(enabled: bool) -> dict[str, bool]:
+    """Enable or disable AM while MAIN output is disabled."""
+    return {"enabled": afg2125.set_am_enabled(enabled)}
+
+
+@mcp.tool(name="afg2125_configure_fm", annotations=STATE_CHANGE)
+def afg2125_configure_fm(
+    source: str = "internal",
+    modulation_function: str = "sine",
+    modulation_frequency_hz: float = 10.0,
+    deviation_hz: float = 100.0,
+) -> dict[str, Any]:
+    """Enable and configure FM with carrier/deviation limit checks."""
+    return afg2125.configure_fm(
+        source=source,
+        modulation_function=modulation_function,
+        modulation_frequency_hz=modulation_frequency_hz,
+        deviation_hz=deviation_hz,
+    )
+
+
+@mcp.tool(name="afg2125_set_fm_enabled", annotations=STATE_CHANGE)
+def afg2125_set_fm_enabled(enabled: bool) -> dict[str, bool]:
+    """Enable or disable FM while MAIN output is disabled."""
+    return {"enabled": afg2125.set_fm_enabled(enabled)}
+
+
+@mcp.tool(name="afg2125_configure_fsk", annotations=STATE_CHANGE)
+def afg2125_configure_fsk(
+    source: str = "internal",
+    hop_frequency_hz: float = 100.0,
+    rate_hz: float = 10.0,
+) -> dict[str, Any]:
+    """Enable and configure FSK with an internal or external source."""
+    return afg2125.configure_fsk(
+        source=source,
+        hop_frequency_hz=hop_frequency_hz,
+        rate_hz=rate_hz,
+    )
+
+
+@mcp.tool(name="afg2125_set_fsk_enabled", annotations=STATE_CHANGE)
+def afg2125_set_fsk_enabled(enabled: bool) -> dict[str, bool]:
+    """Enable or disable FSK while MAIN output is disabled."""
+    return {"enabled": afg2125.set_fsk_enabled(enabled)}
+
+
+@mcp.tool(name="afg2125_configure_sweep", annotations=STATE_CHANGE)
+def afg2125_configure_sweep(
+    start_frequency_hz: float,
+    stop_frequency_hz: float,
+    sweep_time_s: float = 1.0,
+    spacing: str = "linear",
+    source: str = "immediate",
+) -> dict[str, Any]:
+    """Enable and configure linear or logarithmic frequency sweep."""
+    return afg2125.configure_sweep(
+        start_frequency_hz=start_frequency_hz,
+        stop_frequency_hz=stop_frequency_hz,
+        sweep_time_s=sweep_time_s,
+        spacing=spacing,
+        source=source,
+    )
+
+
+@mcp.tool(name="afg2125_set_sweep_enabled", annotations=STATE_CHANGE)
+def afg2125_set_sweep_enabled(enabled: bool) -> dict[str, bool]:
+    """Enable or disable frequency sweep while MAIN output is disabled."""
+    return {"enabled": afg2125.set_sweep_enabled(enabled)}
+
+
 @mcp.tool(name="afg2125_upload_arbitrary_waveform", annotations=STATE_CHANGE)
 def afg2125_upload_arbitrary_waveform(
     values: list[int], start: int = 0
@@ -160,6 +313,14 @@ def afg2125_select_arbitrary_waveform() -> dict[str, str]:
     return {"function": afg2125.select_arbitrary_waveform()}
 
 
+@mcp.tool(name="afg2125_configure_arbitrary_waveform", annotations=STATE_CHANGE)
+def afg2125_configure_arbitrary_waveform(
+    values: list[int], frequency_hz: float, start: int = 0
+) -> dict[str, Any]:
+    """Upload/select ARB data and set frequency with the 20 MHz waveform-rate limit."""
+    return afg2125.configure_arbitrary_waveform(values, frequency_hz, start)
+
+
 @mcp.tool(name="afg2125_set_output", annotations=STATE_CHANGE)
 def afg2125_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str, Any]:
     """Disable output freely, or enable it only after explicit load and cabling confirmation."""
@@ -167,8 +328,8 @@ def afg2125_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str,
     return {
         "requested_enabled": state,
         "verification": (
-            "Command sent. Read-back uses the complete SOURce1:OUTPut? path shown by the "
-            "manual's SCPI command tree."
+            "Command sent and read-back is available through the V1.11-compatible "
+            "SOURce1:OUTPut? path."
         ),
     }
 
@@ -196,13 +357,13 @@ def afg2125_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
 def dpo2012b_get_status() -> dict[str, str]:
     """Read acquisition, trigger, horizontal, and error status."""
     return {
-        "resource": backend.resource_name or "",
-        "acquisition_state": backend.query("ACQuire:STATE?"),
-        "acquisition_mode": backend.query("ACQuire:MODe?"),
-        "trigger_state": backend.query("TRIGger:STATE?"),
-        "horizontal_scale": backend.query("HORizontal:SCAle?"),
-        "record_length": backend.query("HORizontal:RECOrdlength?"),
-        "system_error": backend.query("ALLev?"),
+        "resource": dpo2012b_backend.resource_name or "",
+        "acquisition_state": dpo2012b_backend.query("ACQuire:STATE?"),
+        "acquisition_mode": dpo2012b_backend.query("ACQuire:MODe?"),
+        "trigger_state": dpo2012b_backend.query("TRIGger:STATE?"),
+        "horizontal_scale": dpo2012b_backend.query("HORizontal:SCAle?"),
+        "record_length": dpo2012b_backend.query("HORizontal:RECOrdlength?"),
+        "system_error": dpo2012b_backend.query("ALLev?"),
     }
 
 
@@ -255,7 +416,9 @@ def main() -> None:
     mcp.run(transport=transport)
 
 
-atexit.register(backend.disconnect)
+atexit.register(discovery_backend.disconnect)
+atexit.register(dpo2012b_backend.disconnect)
+atexit.register(afg2125_backend.disconnect)
 
 
 if __name__ == "__main__":

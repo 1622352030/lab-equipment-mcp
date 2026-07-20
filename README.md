@@ -171,8 +171,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `dpo2012b_diagnose_setup`：检查 USB 枚举、VISA Runtime 和 PyVISA 环境
 - `list_visa_instruments`：列出 VISA 仪器，并可选择读取设备身份
 - `dpo2012b_connect`：自动发现或连接指定 DPO2012B VISA 地址
-- `disconnect_instrument`：断开当前仪器连接
-- `identify_instrument`：读取当前仪器的 `*IDN?` 身份信息
+- `disconnect_instrument`：断开全部仪器连接
+- `identify_instrument`：仅连接一台仪器时读取其 `*IDN?`；同时连接时使用型号前缀工具
+- `dpo2012b_identify`、`dpo2012b_disconnect`：单独识别或断开 DPO2012B
 - `dpo2012b_get_status`：读取采集、触发和时基状态
 - `dpo2012b_get_channel_settings`：读取 CH1 或 CH2 垂直设置
 - `dpo2012b_measure`：测量频率、RMS、周期、幅值等参数
@@ -190,14 +191,29 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 
 - `afg2125_diagnose_setup`：检查 GW Instek CDC 驱动、COM 口和 VISA ASRL
 - `afg2125_connect`：通过 PnP 匹配自动发现或连接指定 AFG-2125
+- `afg2125_identify`、`afg2125_disconnect`：单独识别或断开 AFG-2125
 - `afg2125_get_settings`：读取函数、频率、幅度、偏置和幅度单位
+- `afg2125_get_mode_settings`：读取 AM、FM、FSK 和 Sweep 启用状态
 - `afg2125_set_function`、`afg2125_set_frequency`、
   `afg2125_set_amplitude`、`afg2125_set_offset`：保持输出状态不变地配置参数
 - `afg2125_set_square_duty`、`afg2125_set_ramp_symmetry`：设置占空比或对称性
+- `afg2125_configure_am`、`afg2125_configure_fm`、`afg2125_configure_fsk`：
+  配置并回读调制参数；对应 `set_*_enabled` 工具用于关闭或单独启用模式
+- `afg2125_configure_sweep`、`afg2125_set_sweep_enabled`：配置线性/对数扫频、
+  起止频率、扫频时间和触发源
 - `afg2125_upload_arbitrary_waveform`：下载 2–4096 个 `-511..511` 整数点
 - `afg2125_select_arbitrary_waveform`：选择已下载的任意波形
+- `afg2125_configure_arbitrary_waveform`：上传并选择任意波，设置频率并检查
+  `频率 × 点数 <= 20 MHz` 波形速率限制
 - `afg2125_set_output`：关闭输出，或经过显式确认后开启输出
 - `afg2125_query_scpi`、`afg2125_write_scpi`：受保护的通用 SCPI 接口
+
+DPO2012B 与 AFG-2125 使用独立 VISA 会话，可以在同一个 MCP 进程中同时连接。
+`disconnect_instrument` 会断开全部仪器；需要只断开一台时使用对应的
+`dpo2012b_disconnect` 或 `afg2125_disconnect`。
+
+AM、FM、FSK、Sweep 和 ARB 已在 AFG-2125 固件 V1.11 上使用内部源完成真实
+设备闭环验收。外部 MOD/TRIG 输入尚未接线测试，详见设备说明。
 
 示例提示词：
 
