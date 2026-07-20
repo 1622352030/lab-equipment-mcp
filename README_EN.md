@@ -13,7 +13,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 
 | Vendor | Model | Interface | Status |
 | --- | --- | --- | --- |
-| Tektronix | DPO2012B | USBTMC/VISA | Tested on real hardware |
+| Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.

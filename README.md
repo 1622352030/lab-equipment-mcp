@@ -12,7 +12,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 
 | 厂商 | 型号 | 通信接口 | 验证状态 |
 | --- | --- | --- | --- |
-| Tektronix（泰克） | DPO2012B | USBTMC/VISA | 已通过真实设备验证 |
+| Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
 协议，并不是串口 COM 设备，因此不能使用普通串口 MCP 控制。
@@ -40,10 +40,10 @@ src/lab_equipment_mcp/
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)，并确保可以执行 `uvx`
 - 与目标仪器匹配的 VISA Runtime
 
-使用 DPO2012B 时，需要安装
-[NI-VISA Runtime](https://www.ni.com/en/support/downloads/drivers/download.ni-visa.html)
-或包含 USBTMC 支持的 TekVISA/OpenChoice。安装驱动后，请重新插拔 USB
-数据线或重启示波器。正常识别后的 VISA 地址类似：
+使用 DPO2012B 时，需要安装 VISA/USBTMC 驱动。本项目提供独立的
+[DPO2012B 使用说明](docs/tektronix/DPO2012B.md)，其中包含已验证的
+NI-VISA 15.0 Runtime 下载链接、安装日期记录和故障排查方法。安装驱动后，
+请重新插拔 USB 数据线或重启示波器。正常识别后的 VISA 地址类似：
 
 ```text
 USB0::0x0699::0x039D::<设备序列号>::INSTR
