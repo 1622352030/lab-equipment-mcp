@@ -196,7 +196,6 @@ installation does not enable unsafe commands.
 - `afg2125_upload_arbitrary_waveform`: upload 2-4096 integer points in `-511..511`
 - `afg2125_select_arbitrary_waveform`: select the downloaded volatile waveform
 - `afg2125_set_output`: disable output, or enable only with explicit confirmation
-- `afg2125_set_sync_output`: independently disable SYNC, or enable it after TTL confirmation
 - `afg2125_query_scpi`, `afg2125_write_scpi`: guarded generic SCPI access
 
 The manual's `APPLy` commands automatically enable output, so the standard
