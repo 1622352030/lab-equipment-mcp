@@ -1,31 +1,15 @@
 from __future__ import annotations
 
-import ctypes.util
 import importlib.util
 import platform
 import re
 import subprocess
-from pathlib import Path
 from typing import Any
+
+from ...core.host_diagnostics import find_visa_libraries
 
 TEKTRONIX_USB_VENDOR_ID = "0699"
 DPO2012B_USB_PRODUCT_ID = "039D"
-
-
-def _visa_dlls() -> list[str]:
-    candidates = [
-        Path(r"C:\Windows\System32\visa32.dll"),
-        Path(r"C:\Windows\System32\visa64.dll"),
-        Path(r"C:\Windows\SysWOW64\visa32.dll"),
-        Path(r"C:\Program Files\IVI Foundation\VISA\Win64\Bin\visa64.dll"),
-        Path(r"C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin\visa32.dll"),
-    ]
-    found = [str(path) for path in candidates if path.exists()]
-    for library in ("visa32", "visa64"):
-        resolved = ctypes.util.find_library(library)
-        if resolved and resolved not in found:
-            found.append(resolved)
-    return found
 
 
 def _windows_scope_devices() -> list[dict[str, Any]]:
@@ -70,7 +54,7 @@ def _windows_scope_devices() -> list[dict[str, Any]]:
 
 def diagnose_host() -> dict[str, Any]:
     devices = _windows_scope_devices()
-    visa_dlls = _visa_dlls()
+    visa_dlls = find_visa_libraries()
     pyvisa_installed = importlib.util.find_spec("pyvisa") is not None
 
     recommendations: list[str] = []

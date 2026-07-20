@@ -7,3 +7,6 @@ def test_catalog_exposes_device_interfaces() -> None:
     assert devices[0]["model"] == "DPO2012B"
     assert devices[0]["interfaces"][0]["interface_type"] == "usbtmc"
     assert devices[0]["interfaces"][0]["required_drivers"]
+    assert devices[1]["vendor"] == "GW Instek"
+    assert devices[1]["model"] == "AFG-2125"
+    assert devices[1]["interfaces"][0]["interface_type"] == "rs232"

@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -12,12 +13,11 @@ GITHUB_SOURCE = "git+https://github.com/1622352030/lab-equipment-mcp.git@main"
 
 async def verify(use_github: bool = False) -> None:
     project_dir = Path(__file__).resolve().parents[1]
-    executable = os.environ.get("UVX_EXECUTABLE" if use_github else "UV_EXECUTABLE")
-    executable = executable or ("uvx" if use_github else "uv")
+    executable = os.environ.get("UVX_EXECUTABLE", "uvx") if use_github else sys.executable
     args = (
         ["--from", GITHUB_SOURCE, "start-lab-equipment-mcp"]
         if use_github
-        else ["--directory", str(project_dir), "run", "start-lab-equipment-mcp"]
+        else ["-m", "lab_equipment_mcp.server"]
     )
     server = StdioServerParameters(
         command=executable,
@@ -32,6 +32,8 @@ async def verify(use_github: bool = False) -> None:
             print(json.dumps([tool.name for tool in tools.tools], indent=2))
             result = await session.call_tool("dpo2012b_diagnose_setup", {})
             print(result.content[0].text)
+            afg_result = await session.call_tool("afg2125_diagnose_setup", {})
+            print(afg_result.content[0].text)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,18 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "1622352030" }]
-keywords = ["mcp", "tektronix", "dpo2012b", "oscilloscope", "visa", "usbtmc"]
+keywords = [
+  "mcp",
+  "tektronix",
+  "gw-instek",
+  "dpo2012b",
+  "afg-2125",
+  "oscilloscope",
+  "function-generator",
+  "visa",
+  "usbtmc",
+  "serial",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",

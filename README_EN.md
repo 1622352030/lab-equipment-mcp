@@ -18,9 +18,14 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Vendor | Model | Interface | Status |
 | --- | --- | --- | --- |
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
+| GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Read-only tested on real hardware |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.
+
+The AFG-2125 uses its rear Mini USB-B port but enumerates as a USB CDC virtual
+serial port (`AFG CDC Device (COMx)`) and is accessed as `ASRLx::INSTR`. It is
+not USBTMC. See the [AFG-2125 guide](docs/gw_instek/AFG-2125.md).
 
 ## Project Structure
 
@@ -31,9 +36,12 @@ src/lab_equipment_mcp/
 |   `-- transports/
 |       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA backend
 |-- devices/
-|   `-- tektronix/
+|   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA diagnostics
 |       `-- dpo2012b.py          # DPO2012B identity, measurements, waveform
+|   `-- gw_instek/
+|       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL diagnostics
+|       `-- afg_2125.py          # AFG-2125 settings, safety, and ARB download
 `-- server.py                    # MCP tool registration
 ```
 
@@ -176,6 +184,24 @@ Calibration, firmware, reset, recall/save, and file-deletion commands are blocke
 by default. Enabling DPO2012B unsafe commands requires both the server environment
 variable `DPO2012B_ALLOW_UNSAFE=1` and `confirm_unsafe=true`. The standard
 installation does not enable unsafe commands.
+
+## AFG-2125 Tools
+
+- `afg2125_diagnose_setup`: check the GW Instek CDC driver, COM port, and VISA ASRL
+- `afg2125_connect`: use bounded PnP matching or connect an explicit resource
+- `afg2125_get_settings`: read function, frequency, amplitude, offset, and unit
+- `afg2125_set_function`, `afg2125_set_frequency`, `afg2125_set_amplitude`,
+  `afg2125_set_offset`: configure individual parameters without using `APPLy`
+- `afg2125_set_square_duty`, `afg2125_set_ramp_symmetry`
+- `afg2125_upload_arbitrary_waveform`: upload 2-4096 integer points in `-511..511`
+- `afg2125_select_arbitrary_waveform`: select the downloaded volatile waveform
+- `afg2125_set_output`: disable output, or enable only with explicit confirmation
+- `afg2125_query_scpi`, `afg2125_write_scpi`: guarded generic SCPI access
+
+The manual's `APPLy` commands automatically enable output, so the standard
+AFG-2125 configuration tools do not use them. Output enable requires
+`confirm_enable=true`. Raw unsafe commands additionally require
+`AFG2125_ALLOW_UNSAFE=1` and `confirm_unsafe=true`.
 
 ## Add Another Device
 

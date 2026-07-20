@@ -17,9 +17,14 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | 厂商 | 型号 | 通信接口 | 验证状态 |
 | --- | --- | --- | --- |
 | Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
+| GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 已通过真实设备只读验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
 协议，并不是串口 COM 设备，因此不能使用普通串口 MCP 控制。
+
+AFG-2125 使用后部 Mini USB-B 端口，但实际通信方式是 USB CDC 虚拟串口，
+Windows 中显示为 `AFG CDC Device (COMx)`，通过 `ASRLx::INSTR` 访问，
+并不是 USBTMC。详见 [AFG-2125 使用说明](docs/gw_instek/AFG-2125.md)。
 
 ## 项目结构
 
@@ -30,9 +35,12 @@ src/lab_equipment_mcp/
 |   `-- transports/
 |       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA 后端
 |-- devices/
-|   `-- tektronix/
+|   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA 环境诊断
 |       `-- dpo2012b.py          # DPO2012B 识别、测量和波形读取
+|   `-- gw_instek/
+|       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL 环境诊断
+|       `-- afg_2125.py          # AFG-2125 配置、输出保护和任意波形下载
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -178,11 +186,34 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 连接 DPO2012B，测量 CH1 的频率和 RMS，并获取 1000 个波形点。
 ```
 
+## AFG-2125 工具
+
+- `afg2125_diagnose_setup`：检查 GW Instek CDC 驱动、COM 口和 VISA ASRL
+- `afg2125_connect`：通过 PnP 匹配自动发现或连接指定 AFG-2125
+- `afg2125_get_settings`：读取函数、频率、幅度、偏置和幅度单位
+- `afg2125_set_function`、`afg2125_set_frequency`、
+  `afg2125_set_amplitude`、`afg2125_set_offset`：保持输出状态不变地配置参数
+- `afg2125_set_square_duty`、`afg2125_set_ramp_symmetry`：设置占空比或对称性
+- `afg2125_upload_arbitrary_waveform`：下载 2–4096 个 `-511..511` 整数点
+- `afg2125_select_arbitrary_waveform`：选择已下载的任意波形
+- `afg2125_set_output`：关闭输出，或经过显式确认后开启输出
+- `afg2125_query_scpi`、`afg2125_write_scpi`：受保护的通用 SCPI 接口
+
+示例提示词：
+
+```text
+诊断并连接 AFG-2125，读取当前设置，不要开启输出。
+```
+
 ## 安全机制
 
 校准、固件更新、复位、保存/恢复配置和文件删除等高风险命令默认被拦截。
 如确有需要，必须同时设置服务端环境变量 `DPO2012B_ALLOW_UNSAFE=1`，并在
 调用工具时传入 `confirm_unsafe=true`。标准安装方式不会启用危险命令。
+
+AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使用该指令；
+`afg2125_set_output(enabled=true)` 还必须传入 `confirm_enable=true`。原始高风险
+命令需要 `AFG2125_ALLOW_UNSAFE=1` 和 `confirm_unsafe=true` 双重确认。
 
 ## 增加其他设备
 

@@ -10,3 +10,4 @@ build/
 waveforms/
 .uv-cache/
 dist/
+tmp/
