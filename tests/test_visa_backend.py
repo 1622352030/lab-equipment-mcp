@@ -1,7 +1,8 @@
 import pytest
 
-from dpo2012b_mcp.errors import ScopeError
-from dpo2012b_mcp.visa_backend import VisaBackend, VisaResource
+from lab_equipment_mcp.core.errors import ScopeError
+from lab_equipment_mcp.core.visa import VisaBackend, VisaResource
+from lab_equipment_mcp.devices.tektronix.dpo2012b import DPO2012B
 
 
 def test_dpo_detection_by_identity() -> None:
@@ -10,7 +11,7 @@ def test_dpo_detection_by_identity() -> None:
         VisaResource("USB0::x::INSTR", "USB0", "TEKTRONIX,DPO2012B,C010423,1.0"),
         VisaResource("USB0::y::INSTR", "USB0", "OTHER,DEVICE,1,1"),
     ]
-    matches = backend.find_dpo2012b()
+    matches = DPO2012B(backend).find_resources()
     assert len(matches) == 1
     assert "DPO2012B" in (matches[0].idn or "")
 
@@ -63,4 +64,4 @@ def test_connect_rejects_non_dpo() -> None:
     backend = VisaBackend()
     backend._resource_manager = Manager()
     with pytest.raises(ScopeError, match="not a Tektronix DPO2012B"):
-        backend.connect("USB0::x::INSTR")
+        DPO2012B(backend).connect("USB0::x::INSTR")

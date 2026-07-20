@@ -7,18 +7,18 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from .scope import DPO2012B
-from .visa_backend import VisaBackend
-from .windows_diagnostics import diagnose_host
+from .core.visa import VisaBackend
+from .devices.tektronix.diagnostics import diagnose_host
+from .devices.tektronix.dpo2012b import DPO2012B
 
 backend = VisaBackend()
-scope = DPO2012B(backend)
+dpo2012b = DPO2012B(backend)
 mcp = FastMCP(
-    "dpo2012b-mcp",
+    "lab-equipment-mcp",
     instructions=(
-        "Control a Tektronix DPO2012B over USBTMC/VISA. Diagnose the host and list VISA "
-        "resources before connecting. Prefer read-only tools. Do not issue calibration, reset, "
-        "firmware, recall/save, or file deletion commands."
+        "Control supported laboratory instruments over VISA. Tool names include a device prefix. "
+        "Diagnose and identify resources before connecting, prefer read-only tools, and do not "
+        "issue calibration, reset, firmware, recall/save, or file deletion commands."
     ),
 )
 
@@ -32,8 +32,8 @@ STATE_CHANGE = ToolAnnotations(
 )
 
 
-@mcp.tool(annotations=READ_ONLY)
-def diagnose_setup() -> dict[str, Any]:
+@mcp.tool(name="dpo2012b_diagnose_setup", annotations=READ_ONLY)
+def dpo2012b_diagnose_setup() -> dict[str, Any]:
     """Check Windows USB enumeration, VISA runtime, and PyVISA readiness."""
     return diagnose_host()
 
@@ -44,24 +44,24 @@ def list_visa_instruments(probe_identity: bool = True) -> list[dict[str, Any]]:
     return [item.__dict__ for item in backend.list_resources(probe=probe_identity)]
 
 
-@mcp.tool(annotations=STATE_CHANGE)
-def connect_scope(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
+@mcp.tool(name="dpo2012b_connect", annotations=STATE_CHANGE)
+def dpo2012b_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
     """Connect to a DPO2012B; auto-detect it when resource is omitted."""
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
-    identity = backend.connect(resource, timeout_ms)
+    identity = dpo2012b.connect(resource, timeout_ms)
     return {"resource": backend.resource_name or "", "identity": identity}
 
 
-@mcp.tool(annotations=STATE_CHANGE)
-def disconnect_scope() -> str:
+@mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)
+def disconnect_instrument() -> str:
     """Close the active VISA connection."""
     backend.disconnect()
     return "Disconnected"
 
 
-@mcp.tool(annotations=READ_ONLY)
-def identify_scope() -> dict[str, str]:
+@mcp.tool(name="identify_instrument", annotations=READ_ONLY)
+def identify_instrument() -> dict[str, str]:
     """Return the connected oscilloscope identity and VISA resource."""
     return {
         "resource": backend.resource_name or "",
@@ -69,8 +69,8 @@ def identify_scope() -> dict[str, str]:
     }
 
 
-@mcp.tool(annotations=READ_ONLY)
-def get_scope_status() -> dict[str, str]:
+@mcp.tool(name="dpo2012b_get_status", annotations=READ_ONLY)
+def dpo2012b_get_status() -> dict[str, str]:
     """Read acquisition, trigger, horizontal, and error status."""
     return {
         "resource": backend.resource_name or "",
@@ -83,37 +83,37 @@ def get_scope_status() -> dict[str, str]:
     }
 
 
-@mcp.tool(annotations=READ_ONLY)
-def get_channel_settings(channel: str = "CH1") -> dict[str, Any]:
+@mcp.tool(name="dpo2012b_get_channel_settings", annotations=READ_ONLY)
+def dpo2012b_get_channel_settings(channel: str = "CH1") -> dict[str, Any]:
     """Read vertical settings for CH1 or CH2."""
-    return scope.channel_settings(channel)
+    return dpo2012b.channel_settings(channel)
 
 
-@mcp.tool(annotations=STATE_CHANGE)
-def measure(channel: str = "CH1", measurement: str = "FREQUENCY") -> dict[str, Any]:
+@mcp.tool(name="dpo2012b_measure", annotations=STATE_CHANGE)
+def dpo2012b_measure(channel: str = "CH1", measurement: str = "FREQUENCY") -> dict[str, Any]:
     """Take an immediate DPO2012B measurement on CH1 or CH2."""
-    return scope.immediate_measurement(channel, measurement)
+    return dpo2012b.immediate_measurement(channel, measurement)
 
 
-@mcp.tool(annotations=STATE_CHANGE)
-def acquire_waveform(
+@mcp.tool(name="dpo2012b_acquire_waveform", annotations=STATE_CHANGE)
+def dpo2012b_acquire_waveform(
     channel: str = "CH1",
     start: int = 1,
     stop: int | None = None,
     max_points: int = 5000,
 ) -> dict[str, Any]:
     """Acquire up to 10,000 scaled waveform points from CH1 or CH2."""
-    return scope.acquire_waveform(channel, start, stop, max_points)
+    return dpo2012b.acquire_waveform(channel, start, stop, max_points)
 
 
-@mcp.tool(annotations=READ_ONLY)
-def query_scpi(command: str) -> dict[str, str]:
+@mcp.tool(name="dpo2012b_query_scpi", annotations=READ_ONLY)
+def dpo2012b_query_scpi(command: str) -> dict[str, str]:
     """Send a read-only SCPI query to the connected DPO2012B."""
-    return {"command": command, "response": scope.query(command)}
+    return {"command": command, "response": dpo2012b.query(command)}
 
 
-@mcp.tool(annotations=STATE_CHANGE)
-def write_scpi(command: str, confirm_unsafe: bool = False) -> str:
+@mcp.tool(name="dpo2012b_write_scpi", annotations=STATE_CHANGE)
+def dpo2012b_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
     """Send a SCPI setting command; destructive commands require explicit confirmation."""
     unsafe_enabled = os.getenv("DPO2012B_ALLOW_UNSAFE", "").lower() in {"1", "true", "yes"}
     if confirm_unsafe and not unsafe_enabled:
@@ -121,14 +121,14 @@ def write_scpi(command: str, confirm_unsafe: bool = False) -> str:
             "Unsafe SCPI is disabled by the server. Set DPO2012B_ALLOW_UNSAFE=1 in the MCP "
             "server environment and pass confirm_unsafe=true to enable it."
         )
-    scope.write(command, allow_unsafe=confirm_unsafe and unsafe_enabled)
+    dpo2012b.write(command, allow_unsafe=confirm_unsafe and unsafe_enabled)
     return "Command sent"
 
 
 def main() -> None:
-    transport = os.getenv("DPO2012B_MCP_TRANSPORT", "stdio")
+    transport = os.getenv("LAB_EQUIPMENT_MCP_TRANSPORT", "stdio")
     if transport not in {"stdio", "sse", "streamable-http"}:
-        raise ValueError("DPO2012B_MCP_TRANSPORT must be stdio, sse, or streamable-http")
+        raise ValueError("LAB_EQUIPMENT_MCP_TRANSPORT must be stdio, sse, or streamable-http")
     mcp.run(transport=transport)
 
 

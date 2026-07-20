@@ -18,7 +18,7 @@ class VisaResource:
 
 class VisaBackend:
     def __init__(self, visa_library: str | None = None) -> None:
-        self.visa_library = visa_library or os.getenv("DPO2012B_VISA_LIBRARY")
+        self.visa_library = visa_library or os.getenv("LAB_EQUIPMENT_VISA_LIBRARY")
         self._resource_manager: Any | None = None
         self._instrument: Any | None = None
         self._resource_name: str | None = None
@@ -78,31 +78,10 @@ class VisaBackend:
                         pass
         return resources
 
-    def find_dpo2012b(self) -> list[VisaResource]:
-        matches: list[VisaResource] = []
-        for resource in self.list_resources(probe=True):
-            identity = (resource.idn or "").upper()
-            name = resource.resource.upper()
-            if "DPO2012B" in identity or ("USB" in name and "0X0699" in name):
-                matches.append(resource)
-        return matches
-
-    def connect(self, resource_name: str | None = None, timeout_ms: int = 5000) -> str:
+    def connect(self, resource_name: str, timeout_ms: int = 5000) -> str:
         with self._lock:
             if self._instrument is not None:
                 self.disconnect()
-            if resource_name is None:
-                matches = self.find_dpo2012b()
-                if not matches:
-                    raise ScopeError(
-                        "No DPO2012B VISA resource found. Check the USB cable, scope USB Computer "
-                        "setting, and NI-VISA/TekVISA driver."
-                    )
-                if len(matches) > 1:
-                    names = ", ".join(item.resource for item in matches)
-                    raise ScopeError(f"Multiple DPO2012B resources found; specify one: {names}")
-                resource_name = matches[0].resource
-
             try:
                 instrument = self._manager().open_resource(resource_name, open_timeout=timeout_ms)
                 instrument.timeout = timeout_ms
@@ -113,11 +92,6 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"Unable to connect to {resource_name}: {exc}") from exc
 
-            if "TEKTRONIX" not in identity.upper() or "DPO2012B" not in identity.upper():
-                instrument.close()
-                raise ScopeError(
-                    f"Resource is not a Tektronix DPO2012B: {identity or 'empty *IDN? response'}"
-                )
             self._instrument = instrument
             self._resource_name = resource_name
             return identity
@@ -137,7 +111,7 @@ class VisaBackend:
 
     def instrument(self) -> Any:
         if self._instrument is None:
-            raise ScopeNotConnectedError("No oscilloscope is connected. Call connect_scope first.")
+            raise ScopeNotConnectedError("No VISA instrument is connected.")
         return self._instrument
 
     def query(self, command: str) -> str:

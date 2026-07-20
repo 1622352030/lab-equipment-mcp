@@ -12,7 +12,7 @@ async def verify() -> None:
     uv = os.environ.get("UV_EXECUTABLE", "uv")
     server = StdioServerParameters(
         command=uv,
-        args=["--directory", str(project_dir), "run", "start-dpo2012b-mcp"],
+        args=["--directory", str(project_dir), "run", "start-lab-equipment-mcp"],
         env={**os.environ, "UV_CACHE_DIR": str(project_dir / ".uv-cache")},
         cwd=project_dir,
     )
@@ -21,7 +21,7 @@ async def verify() -> None:
             await session.initialize()
             tools = await session.list_tools()
             print(json.dumps([tool.name for tool in tools.tools], indent=2))
-            result = await session.call_tool("diagnose_setup", {})
+            result = await session.call_tool("dpo2012b_diagnose_setup", {})
             print(result.content[0].text)
 
 

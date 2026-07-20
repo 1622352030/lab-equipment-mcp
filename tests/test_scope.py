@@ -1,6 +1,6 @@
 import pytest
 
-from dpo2012b_mcp.scope import DPO2012B, normalize_channel
+from lab_equipment_mcp.devices.tektronix.dpo2012b import DPO2012B, normalize_channel
 
 
 class FakeBackend:

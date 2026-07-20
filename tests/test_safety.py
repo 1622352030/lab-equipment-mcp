@@ -1,7 +1,7 @@
 import pytest
 
-from dpo2012b_mcp.errors import UnsafeCommandError
-from dpo2012b_mcp.safety import validate_scpi
+from lab_equipment_mcp.core.errors import UnsafeCommandError
+from lab_equipment_mcp.core.safety import validate_scpi
 
 
 @pytest.mark.parametrize(
@@ -20,4 +20,3 @@ def test_allows_normal_queries_and_settings() -> None:
 
 def test_explicit_override_allows_unsafe_command() -> None:
     assert validate_scpi("*RST", allow_unsafe=True) == "*RST"
-

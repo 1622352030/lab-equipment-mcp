@@ -3,8 +3,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from .safety import validate_scpi
-from .visa_backend import VisaBackend
+from ...core.errors import ScopeError
+from ...core.safety import validate_scpi
+from ...core.visa import VisaBackend, VisaResource
 
 VALID_CHANNELS = {"CH1", "CH2"}
 VALID_MEASUREMENTS = {
@@ -33,6 +34,38 @@ def normalize_channel(channel: str) -> str:
 class DPO2012B:
     def __init__(self, backend: VisaBackend) -> None:
         self.backend = backend
+
+    def find_resources(self) -> list[VisaResource]:
+        matches: list[VisaResource] = []
+        for resource in self.backend.list_resources(probe=True):
+            identity = (resource.idn or "").upper()
+            name = resource.resource.upper()
+            if "DPO2012B" in identity or (
+                "USB" in name and "0X0699" in name and "0X039D" in name
+            ):
+                matches.append(resource)
+        return matches
+
+    def connect(self, resource_name: str | None = None, timeout_ms: int = 5000) -> str:
+        if resource_name is None:
+            matches = self.find_resources()
+            if not matches:
+                raise ScopeError(
+                    "No DPO2012B VISA resource found. Check the USB cable, USB Computer setting, "
+                    "and NI-VISA/TekVISA driver."
+                )
+            if len(matches) > 1:
+                names = ", ".join(item.resource for item in matches)
+                raise ScopeError(f"Multiple DPO2012B resources found; specify one: {names}")
+            resource_name = matches[0].resource
+
+        identity = self.backend.connect(resource_name, timeout_ms)
+        if "TEKTRONIX" not in identity.upper() or "DPO2012B" not in identity.upper():
+            self.backend.disconnect()
+            raise ScopeError(
+                f"Resource is not a Tektronix DPO2012B: {identity or 'empty *IDN? response'}"
+            )
+        return identity
 
     def channel_settings(self, channel: str) -> dict[str, Any]:
         channel = normalize_channel(channel)

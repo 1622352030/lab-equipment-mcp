@@ -224,30 +224,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dpo2012b-mcp"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "mcp" },
-    { name = "pyvisa" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mcp", specifier = ">=1.28.1,<2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<9" },
-    { name = "pyvisa", specifier = ">=1.15,<2" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -337,6 +313,30 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
 ]
+
+[[package]]
+name = "lab-equipment-mcp"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "mcp" },
+    { name = "pyvisa" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", specifier = ">=1.28.1,<2" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<9" },
+    { name = "pyvisa", specifier = ">=1.15,<2" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mcp"
