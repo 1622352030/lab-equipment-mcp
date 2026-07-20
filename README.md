@@ -6,6 +6,10 @@
 设备型号隔离驱动，方便持续增加示波器、电源、万用表、信号发生器等实验设备，
 同时避免不同型号的识别规则和控制命令互相混杂。
 
+框架支持为同一设备声明多个通信接口，包括 USBTMC、RS-232、LAN VXI-11、
+LAN 原始 Socket 和 GPIB。每个接口都可以配置独立的驱动要求、发现方式、
+优先级、终止符和串口参数。
+
 GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 
 ## 已支持设备
@@ -21,7 +25,10 @@ DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/
 
 ```text
 src/lab_equipment_mcp/
-|-- core/                         # 公共 VISA、异常和 SCPI 安全逻辑
+|-- core/
+|   |-- interfaces.py            # 设备多接口声明与会话配置
+|   `-- transports/
+|       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA 后端
 |-- devices/
 |   `-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA 环境诊断
@@ -32,6 +39,25 @@ src/lab_equipment_mcp/
 新增型号时，应在 `devices/<厂商>/` 下建立独立模块。通用通信逻辑放入
 `core/`；设备 ID、SCPI 指令、参数范围和返回值解析等型号相关逻辑放在对应
 设备驱动中。
+
+## 开发者 Skill
+
+仓库提供 [`add-lab-equipment-device`](skills/add-lab-equipment-device/SKILL.md)
+Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已有设备增加新的
+通信接口。Skill 覆盖：
+
+- 读取用户已下载的设备手册和编程手册
+- 确认接口类型、接线方式和设备实际枚举结果
+- 检查驱动、VISA Runtime、串口和网络环境缺漏
+- 判断依赖可否自动安装，或要求用户从厂商官网下载
+- Fork、克隆、建立功能分支和提交 Pull Request 的开发流程
+- 多接口建模、测试要求、真实设备验收和代码质量门槛
+
+显式调用示例：
+
+```text
+使用 $add-lab-equipment-device 为这个项目增加一台支持 RS-232 和 LAN 的电源。
+```
 
 ## 环境要求
 
@@ -133,6 +159,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 
 ## DPO2012B 工具
 
+- `list_supported_devices`：列出项目支持的设备及每台设备声明的通信接口
 - `dpo2012b_diagnose_setup`：检查 USB 枚举、VISA Runtime 和 PyVISA 环境
 - `list_visa_instruments`：列出 VISA 仪器，并可选择读取设备身份
 - `dpo2012b_connect`：自动发现或连接指定 DPO2012B VISA 地址
@@ -160,11 +187,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 ## 增加其他设备
 
 1. 新建 `src/lab_equipment_mcp/devices/<厂商>/<型号>.py`。
-2. 将设备发现和身份验证逻辑放在对应设备驱动中。
-3. VISA/USBTMC/GPIB/TCPIP 设备优先复用 `core.visa.VisaBackend`。
-4. MCP 工具名增加型号前缀，例如 `model_measure_voltage`。
-5. 添加模拟单元测试；具备实物时，再增加真实设备冒烟测试。
-6. 更新本文档中的设备支持表和工具说明。
+2. 使用 `DeviceProfile` 和多个 `InterfaceSpec` 声明该型号支持的全部接口。
+3. 将设备发现和身份验证逻辑放在对应设备驱动中。
+4. VISA/USBTMC/GPIB/TCPIP/ASRL 设备优先复用
+   `core.transports.visa.VisaBackend`。
+5. MCP 工具名增加型号前缀，例如 `model_measure_voltage`。
+6. 添加模拟单元测试；具备实物时，再增加真实设备冒烟测试。
+7. 更新本文档中的设备支持表、接口测试状态和工具说明。
 
 ## 开发与测试
 

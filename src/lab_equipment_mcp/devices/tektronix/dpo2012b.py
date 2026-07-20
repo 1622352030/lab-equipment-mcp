@@ -4,8 +4,9 @@ import math
 from typing import Any
 
 from ...core.errors import ScopeError
+from ...core.interfaces import DeviceProfile, InterfaceSpec, InterfaceType, SessionConfig
 from ...core.safety import validate_scpi
-from ...core.visa import VisaBackend, VisaResource
+from ...core.transports.visa import VisaBackend, VisaResource
 
 VALID_CHANNELS = {"CH1", "CH2"}
 VALID_MEASUREMENTS = {
@@ -23,6 +24,20 @@ VALID_MEASUREMENTS = {
     "NWIDTH",
 }
 
+DPO2012B_PROFILE = DeviceProfile(
+    vendor="Tektronix",
+    model="DPO2012B",
+    interfaces=(
+        InterfaceSpec(
+            interface_type=InterfaceType.USBTMC,
+            priority=10,
+            session=SessionConfig(),
+            required_drivers=("NI-VISA Runtime", "TekVISA/OpenChoice"),
+            connection_notes="Use the rear USB Type-B device port, not the front USB host port.",
+        ),
+    ),
+)
+
 
 def normalize_channel(channel: str) -> str:
     normalized = channel.strip().upper().replace("CHANNEL", "CH")
@@ -32,12 +47,16 @@ def normalize_channel(channel: str) -> str:
 
 
 class DPO2012B:
+    profile = DPO2012B_PROFILE
+
     def __init__(self, backend: VisaBackend) -> None:
         self.backend = backend
 
     def find_resources(self) -> list[VisaResource]:
         matches: list[VisaResource] = []
-        for resource in self.backend.list_resources(probe=True):
+        for resource in self.backend.list_resources(
+            probe=True, interface_types=self.profile.interface_types
+        ):
             identity = (resource.idn or "").upper()
             name = resource.resource.upper()
             if "DPO2012B" in identity or (
@@ -59,7 +78,14 @@ class DPO2012B:
                 raise ScopeError(f"Multiple DPO2012B resources found; specify one: {names}")
             resource_name = matches[0].resource
 
-        identity = self.backend.connect(resource_name, timeout_ms)
+        interface = self.profile.interface_for_resource(resource_name)
+        if interface is None:
+            supported = ", ".join(sorted(item.value for item in self.profile.interface_types))
+            raise ScopeError(
+                f"DPO2012B does not declare support for this interface; expected {supported}"
+            )
+
+        identity = self.backend.connect(resource_name, timeout_ms, interface.session)
         if "TEKTRONIX" not in identity.upper() or "DPO2012B" not in identity.upper():
             self.backend.disconnect()
             raise ScopeError(

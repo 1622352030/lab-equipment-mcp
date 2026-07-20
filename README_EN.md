@@ -7,6 +7,10 @@ drivers are isolated by vendor and model so oscilloscopes, power supplies,
 multimeters, signal generators, and other equipment can be added without mixing
 model-specific commands.
 
+One device can declare multiple connection methods, including USBTMC, RS-232,
+LAN VXI-11, LAN raw sockets, and GPIB. Each interface has its own driver requirements,
+discovery behavior, priority, termination, and serial settings.
+
 Repository: <https://github.com/1622352030/lab-equipment-mcp>
 
 ## Supported Equipment
@@ -22,7 +26,10 @@ instrument, not a serial COM-port device.
 
 ```text
 src/lab_equipment_mcp/
-|-- core/                         # Shared VISA, errors, and SCPI safety
+|-- core/
+|   |-- interfaces.py            # Multi-interface profiles and session settings
+|   `-- transports/
+|       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA backend
 |-- devices/
 |   `-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA diagnostics
@@ -33,6 +40,20 @@ src/lab_equipment_mcp/
 New models should receive their own module under `devices/<vendor>/`. Shared
 transport code belongs in `core/`; model-specific IDs, SCPI commands, ranges,
 and parsing stay in the device driver.
+
+## Developer Skill
+
+Use the repository's
+[`add-lab-equipment-device`](skills/add-lab-equipment-device/SKILL.md) Skill to add
+a new model or another interface to an existing model. It covers manuals, cabling,
+driver diagnostics, automated/manual dependency installation, fork and feature-branch
+workflow, multi-interface modeling, hardware acceptance, and contribution quality gates.
+
+Example:
+
+```text
+Use $add-lab-equipment-device to add a power supply with RS-232 and LAN support.
+```
 
 ## Requirements
 
@@ -131,6 +152,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 
 ## DPO2012B Tools
 
+- `list_supported_devices`: list device models and declared connection interfaces
 - `dpo2012b_diagnose_setup`: check USB enumeration, VISA runtime, and PyVISA
 - `list_visa_instruments`: enumerate and optionally identify VISA instruments
 - `dpo2012b_connect`: auto-detect or connect to a DPO2012B VISA resource
@@ -158,11 +180,12 @@ installation does not enable unsafe commands.
 ## Add Another Device
 
 1. Add `src/lab_equipment_mcp/devices/<vendor>/<model>.py`.
-2. Keep discovery and identity validation in that device driver.
-3. Reuse `core.visa.VisaBackend` for VISA/USBTMC/GPIB/TCPIP devices.
-4. Prefix MCP tools with the model name, such as `model_measure_voltage`.
-5. Add simulated unit tests and, when available, a real-hardware smoke test.
-6. Update the supported-equipment table and tool documentation.
+2. Declare all supported interfaces with `DeviceProfile` and `InterfaceSpec` entries.
+3. Keep discovery and identity validation in that device driver.
+4. Reuse `core.transports.visa.VisaBackend` for VISA/USBTMC/GPIB/TCPIP/ASRL devices.
+5. Prefix MCP tools with the model name, such as `model_measure_voltage`.
+6. Add simulated unit tests and, when available, a real-hardware smoke test.
+7. Update supported-equipment tables, interface test status, and tool documentation.
 
 ## Development
 

@@ -5,13 +5,15 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from .errors import ScopeError, ScopeNotConnectedError
+from ..errors import ScopeError, ScopeNotConnectedError
+from ..interfaces import InterfaceType, SessionConfig, detect_interface_type
 
 
 @dataclass(frozen=True)
 class VisaResource:
     resource: str
     interface: str
+    interface_type: InterfaceType = InterfaceType.UNKNOWN
     idn: str | None = None
     error: str | None = None
 
@@ -46,7 +48,12 @@ class VisaBackend:
                 ) from exc
         return self._resource_manager
 
-    def list_resources(self, *, probe: bool = True) -> list[VisaResource]:
+    def list_resources(
+        self,
+        *,
+        probe: bool = True,
+        interface_types: frozenset[InterfaceType] | None = None,
+    ) -> list[VisaResource]:
         manager = self._manager()
         try:
             names = manager.list_resources()
@@ -56,9 +63,16 @@ class VisaBackend:
         resources: list[VisaResource] = []
         for name in names:
             interface = name.split("::", 1)[0]
-            is_message_instrument = interface.upper().startswith(("USB", "GPIB", "TCPIP"))
-            if not probe or not is_message_instrument:
-                resources.append(VisaResource(name, interface))
+            interface_type = detect_interface_type(name)
+            if interface_types is not None and interface_type not in interface_types:
+                continue
+            safe_to_probe = interface_type in {
+                InterfaceType.USBTMC,
+                InterfaceType.LAN_VXI11,
+                InterfaceType.GPIB,
+            }
+            if not probe or not safe_to_probe:
+                resources.append(VisaResource(name, interface, interface_type))
                 continue
             instrument = None
             try:
@@ -67,9 +81,9 @@ class VisaBackend:
                 instrument.read_termination = "\n"
                 instrument.write_termination = "\n"
                 idn = str(instrument.query("*IDN?")).strip()
-                resources.append(VisaResource(name, interface, idn=idn))
+                resources.append(VisaResource(name, interface, interface_type, idn=idn))
             except Exception as exc:
-                resources.append(VisaResource(name, interface, error=str(exc)))
+                resources.append(VisaResource(name, interface, interface_type, error=str(exc)))
             finally:
                 if instrument is not None:
                     try:
@@ -78,16 +92,71 @@ class VisaBackend:
                         pass
         return resources
 
-    def connect(self, resource_name: str, timeout_ms: int = 5000) -> str:
+    @staticmethod
+    def _apply_session_config(instrument: Any, config: SessionConfig) -> None:
+        instrument.read_termination = config.read_termination
+        instrument.write_termination = config.write_termination
+        instrument.query_delay = config.query_delay_s
+
+        serial_values: dict[str, Any] = {
+            "baud_rate": config.baud_rate,
+            "data_bits": config.data_bits,
+        }
+        try:
+            from pyvisa import constants
+        except ImportError:
+            constants = None
+
+        if config.stop_bits is not None:
+            stop_bits = {
+                1: constants.StopBits.one if constants else 1,
+                1.5: constants.StopBits.one_and_a_half if constants else 1.5,
+                2: constants.StopBits.two if constants else 2,
+            }
+            if config.stop_bits not in stop_bits:
+                raise ValueError("stop_bits must be 1, 1.5, or 2")
+            serial_values["stop_bits"] = stop_bits[config.stop_bits]
+
+        if config.parity is not None:
+            parity_name = config.parity.lower()
+            parity = {
+                name: getattr(constants.Parity, name) if constants else name
+                for name in ("none", "odd", "even", "mark", "space")
+            }
+            if parity_name not in parity:
+                raise ValueError("Unsupported serial parity")
+            serial_values["parity"] = parity[parity_name]
+
+        if config.flow_control is not None:
+            flow_name = config.flow_control.lower().replace("-", "_")
+            if flow_name == "none":
+                serial_values["flow_control"] = 0
+            else:
+                flow = {
+                    name: getattr(constants.ControlFlow, name) if constants else name
+                    for name in ("xon_xoff", "rts_cts", "dtr_dsr")
+                }
+                if flow_name not in flow:
+                    raise ValueError("Unsupported serial flow control")
+                serial_values["flow_control"] = flow[flow_name]
+
+        for attribute, value in serial_values.items():
+            if value is not None:
+                setattr(instrument, attribute, value)
+
+    def connect(
+        self,
+        resource_name: str,
+        timeout_ms: int = 5000,
+        session_config: SessionConfig | None = None,
+    ) -> str:
         with self._lock:
             if self._instrument is not None:
                 self.disconnect()
             try:
                 instrument = self._manager().open_resource(resource_name, open_timeout=timeout_ms)
                 instrument.timeout = timeout_ms
-                instrument.read_termination = "\n"
-                instrument.write_termination = "\n"
-                instrument.query_delay = 0.02
+                self._apply_session_config(instrument, session_config or SessionConfig())
                 identity = str(instrument.query("*IDN?")).strip()
             except Exception as exc:
                 raise ScopeError(f"Unable to connect to {resource_name}: {exc}") from exc
@@ -108,6 +177,12 @@ class VisaBackend:
     @property
     def resource_name(self) -> str | None:
         return self._resource_name
+
+    @property
+    def interface_type(self) -> InterfaceType | None:
+        if self._resource_name is None:
+            return None
+        return detect_interface_type(self._resource_name)
 
     def instrument(self) -> Any:
         if self._instrument is None:

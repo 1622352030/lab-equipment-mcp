@@ -7,7 +7,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from .core.visa import VisaBackend
+from .core.transports.visa import VisaBackend
+from .devices.catalog import list_device_profiles
 from .devices.tektronix.diagnostics import diagnose_host
 from .devices.tektronix.dpo2012b import DPO2012B
 
@@ -32,6 +33,12 @@ STATE_CHANGE = ToolAnnotations(
 )
 
 
+@mcp.tool(annotations=READ_ONLY)
+def list_supported_devices() -> list[dict[str, Any]]:
+    """List supported device models and their declared connection interfaces."""
+    return list_device_profiles()
+
+
 @mcp.tool(name="dpo2012b_diagnose_setup", annotations=READ_ONLY)
 def dpo2012b_diagnose_setup() -> dict[str, Any]:
     """Check Windows USB enumeration, VISA runtime, and PyVISA readiness."""
@@ -50,7 +57,11 @@ def dpo2012b_connect(resource: str | None = None, timeout_ms: int = 5000) -> dic
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
     identity = dpo2012b.connect(resource, timeout_ms)
-    return {"resource": backend.resource_name or "", "identity": identity}
+    return {
+        "resource": backend.resource_name or "",
+        "interface_type": backend.interface_type.value if backend.interface_type else "unknown",
+        "identity": identity,
+    }
 
 
 @mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)

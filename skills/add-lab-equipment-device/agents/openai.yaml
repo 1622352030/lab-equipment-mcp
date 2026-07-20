@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Lab Equipment Device"
+  short_description: "Add and validate a new instrument driver"
+  default_prompt: "Use $add-lab-equipment-device to add support for a new laboratory instrument to this repository."
