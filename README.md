@@ -176,6 +176,7 @@ uv sync --extra dev
 uv run --extra dev pytest
 uv run --extra dev ruff check .
 uv run python scripts/verify_mcp.py
+uv run python scripts/verify_mcp.py --github
 ```
 
 The project uses the MIT License.

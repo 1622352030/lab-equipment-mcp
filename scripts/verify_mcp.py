@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -7,12 +8,21 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def verify() -> None:
+GITHUB_SOURCE = "git+https://github.com/1622352030/lab-equipment-mcp.git@main"
+
+
+async def verify(use_github: bool = False) -> None:
     project_dir = Path(__file__).resolve().parents[1]
-    uv = os.environ.get("UV_EXECUTABLE", "uv")
+    executable = os.environ.get("UVX_EXECUTABLE" if use_github else "UV_EXECUTABLE")
+    executable = executable or ("uvx" if use_github else "uv")
+    args = (
+        ["--from", GITHUB_SOURCE, "start-lab-equipment-mcp"]
+        if use_github
+        else ["--directory", str(project_dir), "run", "start-lab-equipment-mcp"]
+    )
     server = StdioServerParameters(
-        command=uv,
-        args=["--directory", str(project_dir), "run", "start-lab-equipment-mcp"],
+        command=executable,
+        args=args,
         env={**os.environ, "UV_CACHE_DIR": str(project_dir / ".uv-cache")},
         cwd=project_dir,
     )
@@ -26,4 +36,7 @@ async def verify() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(verify())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--github", action="store_true", help="verify the GitHub package source")
+    arguments = parser.parse_args()
+    asyncio.run(verify(use_github=arguments.github))
