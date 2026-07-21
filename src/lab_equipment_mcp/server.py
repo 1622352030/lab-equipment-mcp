@@ -24,7 +24,10 @@ mcp = FastMCP(
     instructions=(
         "Control supported laboratory instruments over VISA. Tool names include a device prefix. "
         "Diagnose and identify resources before connecting, prefer read-only tools, and do not "
-        "issue calibration, reset, firmware, recall/save, or file deletion commands."
+        "issue calibration, reset, firmware, recall/save, or file deletion commands. "
+        "AFG-2125 firmware V1.11 has a reproduced cold-start bug: with square wave selected and "
+        "MAIN still OFF, SYNC may output the complementary duty cycle until MAIN is safely enabled "
+        "once. Read afg2125_get_settings warnings before relying on SYNC."
     ),
 )
 
@@ -163,7 +166,7 @@ def afg2125_identify() -> dict[str, str]:
 
 @mcp.tool(name="afg2125_get_settings", annotations=READ_ONLY)
 def afg2125_get_settings() -> dict[str, Any]:
-    """Read the current AFG-2125 waveform settings and source-prefixed output state."""
+    """Read AFG settings and warn about the V1.11 cold-start SYNC duty-cycle bug."""
     return afg2125.get_settings()
 
 

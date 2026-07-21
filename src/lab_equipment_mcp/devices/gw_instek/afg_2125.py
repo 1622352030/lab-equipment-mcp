@@ -55,6 +55,13 @@ FUNCTION_MAX_FREQUENCY_HZ = {
     "USER": 10_000_000.0,
 }
 
+SYNC_COLD_START_WARNING = (
+    "AFG-2125 firmware V1.11 has a reproduced cold-start SYNC initialization bug: "
+    "after power-up with square wave selected and MAIN still OFF, SYNC can output the "
+    "complementary duty cycle (for example, a stored 20% setting appears as 80% high). "
+    "Before relying on SYNC, safely enable MAIN once or verify SYNC with an oscilloscope/counter."
+)
+
 MODULATION_FUNCTION_ALIASES = {
     "SIN": "SINusoid",
     "SINE": "SINusoid",
@@ -114,6 +121,7 @@ class AFG2125:
         self.backend = backend
         self.port_discovery = port_discovery
         self._connected_resource: str | None = None
+        self._identity: str | None = None
 
     def find_resources(self) -> list[VisaResource]:
         allowed_ports = self.port_discovery()
@@ -156,6 +164,7 @@ class AFG2125:
                 f"Resource is not a GW Instek AFG-2125: {identity or 'empty *IDN? response'}"
             )
         self._connected_resource = resource_name
+        self._identity = identity
         return identity
 
     def _require_connected(self) -> None:
@@ -186,20 +195,30 @@ class AFG2125:
     def get_settings(self) -> dict[str, Any]:
         self._require_connected()
         output_response = self.backend.query("SOURce1:OUTPut?").strip()
+        function = self.backend.query("SOURce1:FUNCtion?")
+        output_enabled = output_response not in {"0", "OFF"}
+        cold_start_risk = (
+            self._identity is not None
+            and "V1.11" in self._identity.upper()
+            and function.strip().upper().startswith("SQU")
+            and not output_enabled
+        )
         return {
             "resource": self.backend.resource_name,
-            "function": self.backend.query("SOURce1:FUNCtion?"),
+            "function": function,
             "frequency_hz": float(self.backend.query("SOURce1:FREQuency?")),
             "amplitude": float(self.backend.query("SOURce1:AMPlitude?")),
             "amplitude_unit": self.backend.query("SOURce1:VOLTage:UNIT?"),
             "offset_volts": float(self.backend.query("SOURce1:DCOffset?")),
             "apply_summary": self.backend.query("SOURce1:APPLy?"),
-            "output_enabled": output_response not in {"0", "OFF"},
+            "output_enabled": output_enabled,
             "output_state_raw": output_response,
             "output_state_note": (
                 "Firmware V1.11 accepts SOURce1:OUTPut? for MAIN read-back. The manual's "
                 "root-level OUTPut? form timed out during real-hardware acceptance."
             ),
+            "sync_cold_start_risk": cold_start_risk,
+            "sync_cold_start_warning": SYNC_COLD_START_WARNING if cold_start_risk else None,
         }
 
     def get_mode_settings(self) -> dict[str, Any]:

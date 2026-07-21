@@ -64,6 +64,7 @@ class FakeBackend:
 def connected_driver(backend: FakeBackend) -> AFG2125:
     driver = AFG2125(backend)
     driver._connected_resource = backend.resource_name
+    driver._identity = "GW INSTEK,AFG-2125,SN:REDACTED,V1.11"
     return driver
 
 
@@ -127,6 +128,27 @@ def test_get_settings_uses_source_prefixed_output_query() -> None:
     assert settings["offset_volts"] == 1.25
     assert settings["output_enabled"] is False
     assert settings["output_state_raw"] == "0"
+    assert settings["sync_cold_start_risk"] is True
+    assert "complementary duty cycle" in settings["sync_cold_start_warning"]
+
+
+def test_get_settings_clears_cold_start_warning_after_main_is_enabled() -> None:
+    backend = FakeBackend()
+    backend.responses["SOURCE1:OUTPUT?"] = "1"
+    settings = connected_driver(backend).get_settings()
+    assert settings["sync_cold_start_risk"] is False
+    assert settings["sync_cold_start_warning"] is None
+
+
+def test_get_settings_limits_cold_start_warning_to_v111_square_mode() -> None:
+    backend = FakeBackend()
+    driver = connected_driver(backend)
+    driver._identity = "GW INSTEK,AFG-2125,SN:REDACTED,V2.07"
+    assert driver.get_settings()["sync_cold_start_risk"] is False
+
+    driver._identity = "GW INSTEK,AFG-2125,SN:REDACTED,V1.11"
+    backend.responses["SOURCE1:FUNCTION?"] = "SIN"
+    assert driver.get_settings()["sync_cold_start_risk"] is False
 
 
 @pytest.mark.parametrize(
