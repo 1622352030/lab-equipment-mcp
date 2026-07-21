@@ -70,10 +70,30 @@ Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已�
 
 ## 环境要求
 
-- Windows 10 或 Windows 11
-- [Codex](https://developers.openai.com/codex/)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)，并确保可以执行 `uvx`
-- 与目标仪器匹配的 VISA Runtime
+- Windows 10 或 Windows 11。
+- [Codex](https://developers.openai.com/codex/) Desktop 或 CLI。
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)，并确保 PowerShell
+  可以执行 `uvx.exe`。
+- Git for Windows。GitHub 安装方式使用 `git+https://...` 源，`uvx` 需要 Git
+  获取项目代码。
+- 首次安装时能够访问 GitHub、Python 下载源和 Python 包源。公司代理、防火墙或
+  完全离线环境需要预先配置代理或准备离线缓存。
+- 当前用户对自己的 `uv` 缓存目录和 Codex 配置目录具有写入权限。
+- 与目标仪器匹配的 VISA Runtime 和厂商设备驱动。
+
+**不需要预先安装 Python。** 项目要求 Python 3.11 或更高版本；当电脑上没有
+兼容 Python 时，`uvx` 默认会自动下载并管理隔离的 Python 运行时，然后安装
+`mcp`、`pyvisa` 等依赖。用户无需手动配置 `pip` 或虚拟环境。如果设置了
+`UV_PYTHON_DOWNLOADS=never`、电脑无法联网或下载源被拦截，则必须自行安装兼容
+Python，或为 `uv` 准备可用的离线 Python/包缓存。
+
+设备驱动要求：
+
+- DPO2012B：支持 USBTMC 的 NI-VISA Runtime、TekVISA 或 OpenChoice 驱动。
+- AFG-2125：GW Instek AFG-2000 USB CDC 驱动和 VISA Runtime；设备应显示为
+  `AFG CDC Device (COMx)`，VISA 地址为 `ASRLx::INSTR`。
+- 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
+  工具或其他 VISA 程序独占设备会话。
 
 使用 DPO2012B 时，需要安装 VISA/USBTMC 驱动。本项目提供独立的
 [DPO2012B 使用说明](docs/tektronix/DPO2012B.md)，其中包含已验证的
@@ -93,6 +113,10 @@ USB0::0x0699::0x039D::<设备序列号>::INSTR
 1. 查找 `codex` 和 `uvx` 的绝对路径。
 2. 如果已经注册旧版 `lab-equipment`，先移除旧配置。
 3. 直接从本 GitHub 仓库注册最新版 MCP。
+
+安装脚本只负责 MCP 注册，不会自动安装 Git、`uv`、VISA Runtime 或厂商设备
+驱动。首次真正启动 MCP 时，`uvx` 才会解析项目并在需要时自动下载 Python 和
+Python 依赖，因此第一次启动需要网络，耗时也会比后续启动更长。
 
 使用 `uvx.exe` 的绝对路径，可以避免 Codex Desktop 没有继承 PowerShell
 `PATH` 环境变量而导致 MCP 无法启动的问题。

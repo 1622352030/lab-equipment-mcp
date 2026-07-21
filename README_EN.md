@@ -67,10 +67,34 @@ Use $add-lab-equipment-device to add a power supply with RS-232 and LAN support.
 
 ## Requirements
 
-- Windows 10 or Windows 11
-- [Codex](https://developers.openai.com/codex/)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) with `uvx`
-- A VISA runtime appropriate for the instrument
+- Windows 10 or Windows 11.
+- [Codex](https://developers.openai.com/codex/) Desktop or CLI.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), with `uvx.exe`
+  available from PowerShell.
+- Git for Windows. The GitHub installation uses a `git+https://...` source, so
+  `uvx` needs Git to fetch the project.
+- First-run access to GitHub, a Python download source, and Python package sources.
+  Corporate proxies, firewalls, and offline hosts require proxy configuration or a
+  prepared offline cache.
+- Write access to the current user's uv cache and Codex configuration directories.
+- A VISA runtime and vendor device driver appropriate for the target instrument.
+
+**Python does not need to be installed in advance.** The project requires Python
+3.11 or newer. If no compatible interpreter is present, `uvx` downloads and manages
+an isolated Python runtime by default, then installs dependencies such as `mcp` and
+`pyvisa`. Users do not need to configure `pip` or a virtual environment. If
+`UV_PYTHON_DOWNLOADS=never` is set, the computer is offline, or download sources are
+blocked, install a compatible Python manually or prepare uv's offline Python/package
+cache.
+
+Device driver requirements:
+
+- DPO2012B: NI-VISA Runtime, TekVISA, or OpenChoice with USBTMC support.
+- AFG-2125: the GW Instek AFG-2000 USB CDC driver plus a VISA runtime. Windows should
+  show `AFG CDC Device (COMx)`, exposed to VISA as `ASRLx::INSTR`.
+- Other instruments: install the VISA, virtual COM, or vendor driver needed by their
+  interface, and close vendor applications or other VISA/serial tools that hold an
+  exclusive session.
 
 For the DPO2012B, install
 [NI-VISA Runtime](https://www.ni.com/en/support/downloads/drivers/download.ni-visa.html)
@@ -88,6 +112,11 @@ USB0::0x0699::0x039D::<serial-number>::INSTR
 The installer discovers the absolute paths of `codex` and `uvx`, replaces an
 older `lab-equipment` registration if present, and registers the GitHub version.
 Using the absolute `uvx.exe` path avoids a common Codex Desktop `PATH` issue.
+
+The installer registers the MCP only; it does not install Git, uv, a VISA runtime,
+or vendor device drivers. Python and Python dependencies are resolved by `uvx` when
+the MCP actually starts. The first start therefore requires network access and can
+take longer than later launches.
 
 Review the script:
 
