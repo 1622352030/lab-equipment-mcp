@@ -10,3 +10,11 @@ def test_catalog_exposes_device_interfaces() -> None:
     assert devices[1]["vendor"] == "GW Instek"
     assert devices[1]["model"] == "AFG-2125"
     assert devices[1]["interfaces"][0]["interface_type"] == "rs232"
+    assert devices[2]["vendor"] == "Agilent/Keysight"
+    assert devices[2]["model"] == "33500B Series"
+    assert {item["interface_type"] for item in devices[2]["interfaces"]} == {
+        "usbtmc",
+        "lan-vxi11",
+        "lan-socket",
+        "gpib",
+    }

@@ -18,6 +18,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | --- | --- | --- | --- |
 | Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
 | GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
+| Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
 协议，并不是串口 COM 设备，因此不能使用普通串口 MCP 控制。
@@ -35,6 +36,9 @@ src/lab_equipment_mcp/
 |   `-- transports/
 |       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA 后端
 |-- devices/
+|   |-- agilent/
+|       |-- diagnostics.py       # 33500B Windows USB/VISA 环境诊断
+|       `-- series_33500b.py     # 接口、选件、功能和安全控制
 |   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA 环境诊断
 |       `-- dpo2012b.py          # DPO2012B 识别、测量和波形读取
@@ -92,6 +96,8 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
 - DPO2012B：支持 USBTMC 的 NI-VISA Runtime、TekVISA 或 OpenChoice 驱动。
 - AFG-2125：GW Instek AFG-2000 USB CDC 驱动和 VISA Runtime；设备应显示为
   `AFG CDC Device (COMx)`，VISA 地址为 `ASRLx::INSTR`。
+- 33500B 系列：Keysight IO Libraries Suite 或其他支持 USBTMC、VXI-11/Socket、
+  GPIB 的 VISA Runtime；USB 使用后部 Type-B 设备端口。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
@@ -289,6 +295,18 @@ CH1 的 SYNC 信号验证实际频率范围，测试后恢复原来的输出状�
 AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使用该指令；
 `afg2125_set_output(enabled=true)` 还必须传入 `confirm_enable=true`。原始高风险
 命令需要 `AFG2125_ALLOW_UNSAFE=1` 和 `confirm_unsafe=true` 双重确认。
+
+## Agilent/Keysight 33500B 系列工具
+
+系列驱动将 USBTMC、LAN VXI-11、LAN SCPI Socket 5025 和 GPIB 建模为独立
+VISA 接口。连接时识别精确型号并读取选件后再决定能力。当前实测 33509B 为
+单通道 20 MHz 且没有 ARB 选件，因此会拒绝任意波命令。
+
+工具覆盖诊断、身份/能力、标准波形、负载、脉冲和波形细节、SYNC、AM/FM/PM/
+PWM/FSK/BPSK/SUM、Sweep、Burst、受保护触发，以及手册其余远程功能所需的
+通用 SCPI 接口。输出开启必须传入 `confirm_enable=true`；`APPLy`、原始输出切换、
+复位、自检、校准、许可证、破坏性文件操作和安全擦除默认禁止。详见
+[33500B 系列说明](docs/agilent/33500B-Series.md)。
 
 ## 增加其他设备
 

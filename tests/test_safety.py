@@ -6,7 +6,19 @@ from lab_equipment_mcp.core.safety import validate_scpi
 
 @pytest.mark.parametrize(
     "command",
-    ["*RST", "*RCL 1", "*SAV 1", "CALIBRATE:START", "FILESYSTEM:DELETE \"a\""],
+    [
+        "*RST",
+        "*RCL 1",
+        "*SAV 1",
+        "*TST?",
+        "CALIBRATE:START",
+        'FILESYSTEM:DELETE "a"',
+        'MMEMORY:DELETE "a"',
+        'MMEM:DEL "a"',
+        "MEMORY:STATE:DELETE 1",
+        'SYSTEM:LICENSE:INSTALL "a"',
+        "SYSTEM:SECURITY:IMMEDIATE",
+    ],
 )
 def test_blocks_unsafe_commands(command: str) -> None:
     with pytest.raises(UnsafeCommandError):

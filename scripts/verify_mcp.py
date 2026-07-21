@@ -34,6 +34,8 @@ async def verify(use_github: bool = False) -> None:
             print(result.content[0].text)
             afg_result = await session.call_tool("afg2125_diagnose_setup", {})
             print(afg_result.content[0].text)
+            agilent_result = await session.call_tool("agilent33500b_diagnose_setup", {})
+            print(agilent_result.content[0].text)
 
 
 if __name__ == "__main__":

@@ -7,12 +7,19 @@ _BLOCKED_PATTERNS = (
     r"(^|:)FAC(?:TORY)?(?:\s|:|$)",
     r"(^|:)FILESystem:(?:DELete|REName|FORMat)",
     r"(^|:)MEMory:(?:DELete|INITialize)",
+    r"(^|:)MEM(?:ORY)?:STAT(?:E)?:DEL(?:ETE)?(?:\s|;|$)",
+    r"(^|:)MMEM(?:ORY)?:(?:DEL(?:ETE)?|MOVE|COPY)",
+    r"(^|:)SYSTem:LICense:(?:INSTall|DELete)",
+    r"(^|:)SYSTem:SECurity:IMMediate(?:\s|;|$)",
+    r"(^|:)SYST(?:EM)?:LIC(?:ENSE)?:(?:INST(?:ALL)?|DEL(?:ETE)?)",
+    r"(^|:)SYST(?:EM)?:SEC(?:URITY)?:IMM(?:EDIATE)?(?:\s|;|$)",
     r"(^|:)SECure(?:\s|:|$)",
     r"(^|:)FIRMware(?:\s|:|$)",
     r"(^|:)UPDate(?:\s|:|$)",
     r"\*RST(?:\s|;|$)",
     r"\*RCL(?:\s|;|$)",
     r"\*SAV(?:\s|;|$)",
+    r"\*TST\?(?:\s|;|$)",
 )
 
 

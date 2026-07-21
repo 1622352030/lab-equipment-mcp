@@ -8,6 +8,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from .core.transports.visa import VisaBackend
+from .devices.agilent.diagnostics import diagnose_host as diagnose_agilent33500b_host
+from .devices.agilent.series_33500b import Agilent33500B
 from .devices.catalog import list_device_profiles
 from .devices.gw_instek.afg_2125 import AFG2125
 from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_host
@@ -17,8 +19,10 @@ from .devices.tektronix.dpo2012b import DPO2012B
 discovery_backend = VisaBackend()
 dpo2012b_backend = VisaBackend()
 afg2125_backend = VisaBackend()
+agilent33500b_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
+agilent33500b = Agilent33500B(agilent33500b_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -57,6 +61,12 @@ def dpo2012b_diagnose_setup() -> dict[str, Any]:
 def afg2125_diagnose_setup() -> dict[str, Any]:
     """Check the AFG-2125 USB CDC driver, COM port, VISA ASRL, and PyVISA readiness."""
     return diagnose_afg2125_host(discovery_backend)
+
+
+@mcp.tool(name="agilent33500b_diagnose_setup", annotations=READ_ONLY)
+def agilent33500b_diagnose_setup() -> dict[str, Any]:
+    """Check 33500B USB enumeration, VISA resources, and PyVISA readiness."""
+    return diagnose_agilent33500b_host(discovery_backend)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -101,11 +111,31 @@ def afg2125_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict
     }
 
 
+@mcp.tool(name="agilent33500b_connect", annotations=STATE_CHANGE)
+def agilent33500b_connect(
+    resource: str | None = None, timeout_ms: int = 5000
+) -> dict[str, str]:
+    """Connect to an Agilent/Keysight 33500 Series generator over VISA."""
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = agilent33500b.connect(resource, timeout_ms)
+    return {
+        "resource": agilent33500b_backend.resource_name or "",
+        "interface_type": (
+            agilent33500b_backend.interface_type.value
+            if agilent33500b_backend.interface_type
+            else "unknown"
+        ),
+        "identity": identity,
+    }
+
+
 @mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)
 def disconnect_instrument() -> str:
     """Close all active instrument and discovery VISA sessions."""
     dpo2012b_backend.disconnect()
     afg2125_backend.disconnect()
+    agilent33500b_backend.disconnect()
     discovery_backend.disconnect()
     return "Disconnected all instruments"
 
@@ -124,12 +154,22 @@ def afg2125_disconnect() -> str:
     return "AFG-2125 disconnected"
 
 
+@mcp.tool(name="agilent33500b_disconnect", annotations=STATE_CHANGE)
+def agilent33500b_disconnect() -> str:
+    """Close only the Agilent/Keysight 33500B VISA connection."""
+    agilent33500b_backend.disconnect()
+    agilent33500b.identity = None
+    agilent33500b.options = ()
+    return "33500B disconnected"
+
+
 @mcp.tool(name="identify_instrument", annotations=READ_ONLY)
 def identify_instrument() -> dict[str, str]:
     """Identify the only connected instrument; use prefixed tools when both are connected."""
     connected = [
         ("DPO2012B", dpo2012b_backend),
         ("AFG-2125", afg2125_backend),
+        ("33500B Series", agilent33500b_backend),
     ]
     connected = [(name, item) for name, item in connected if item.resource_name]
     if not connected:
@@ -162,6 +202,186 @@ def afg2125_identify() -> dict[str, str]:
         "resource": afg2125_backend.resource_name or "",
         "identity": afg2125_backend.query("*IDN?"),
     }
+
+
+@mcp.tool(name="agilent33500b_identify", annotations=READ_ONLY)
+def agilent33500b_identify() -> dict[str, str]:
+    """Return the connected 33500B identity and VISA resource."""
+    return {
+        "resource": agilent33500b_backend.resource_name or "",
+        "identity": agilent33500b_backend.query("*IDN?"),
+    }
+
+
+@mcp.tool(name="agilent33500b_get_capabilities", annotations=READ_ONLY)
+def agilent33500b_get_capabilities() -> dict[str, Any]:
+    """Read model, firmware, options, channels, bandwidth, and supported interfaces."""
+    return agilent33500b.capabilities()
+
+
+@mcp.tool(name="agilent33500b_get_settings", annotations=READ_ONLY)
+def agilent33500b_get_settings() -> dict[str, Any]:
+    """Read the channel, output, sync, modulation, sweep, and burst state."""
+    return agilent33500b.get_settings()
+
+
+@mcp.tool(name="agilent33500b_set_waveform", annotations=STATE_CHANGE)
+def agilent33500b_set_waveform(
+    function: str,
+    frequency_hz: float | None = None,
+    amplitude_vpp: float | None = None,
+    offset_volts: float | None = None,
+) -> dict[str, Any]:
+    """Configure a standard waveform while the channel output is disabled."""
+    return agilent33500b.set_waveform(
+        function, frequency_hz, amplitude_vpp, offset_volts
+    )
+
+
+@mcp.tool(name="agilent33500b_set_output", annotations=STATE_CHANGE)
+def agilent33500b_set_output(
+    enabled: bool, confirm_enable: bool = False
+) -> dict[str, Any]:
+    """Disable output freely or enable it after explicit cabling and load confirmation."""
+    state = agilent33500b.set_output(enabled, confirm_enable=confirm_enable)
+    return {"requested_enabled": state, "verified_by_readback": True}
+
+
+@mcp.tool(name="agilent33500b_set_output_load", annotations=STATE_CHANGE)
+def agilent33500b_set_output_load(load_ohms: float | None = None) -> dict[str, Any]:
+    """Set the expected load in ohms, or null for high impedance, with output disabled."""
+    return agilent33500b.set_output_load(load_ohms)
+
+
+@mcp.tool(name="agilent33500b_set_waveform_detail", annotations=STATE_CHANGE)
+def agilent33500b_set_waveform_detail(
+    square_duty_percent: float | None = None,
+    ramp_symmetry_percent: float | None = None,
+    phase_degrees: float | None = None,
+    polarity: str | None = None,
+) -> dict[str, Any]:
+    """Set duty cycle, ramp symmetry, phase, or output polarity with read-back."""
+    return agilent33500b.set_waveform_detail(
+        square_duty_percent, ramp_symmetry_percent, phase_degrees, polarity
+    )
+
+
+@mcp.tool(name="agilent33500b_configure_pulse", annotations=STATE_CHANGE)
+def agilent33500b_configure_pulse(
+    period_s: float | None = None,
+    width_s: float | None = None,
+    duty_percent: float | None = None,
+    leading_s: float | None = None,
+    trailing_s: float | None = None,
+) -> dict[str, Any]:
+    """Configure pulse period, width or duty, and edge transition times."""
+    return agilent33500b.configure_pulse(
+        period_s, width_s, duty_percent, leading_s, trailing_s
+    )
+
+
+@mcp.tool(name="agilent33500b_configure_sync", annotations=STATE_CHANGE)
+def agilent33500b_configure_sync(
+    enabled: bool | None = None,
+    mode: str | None = None,
+    polarity: str | None = None,
+) -> dict[str, Any]:
+    """Configure the front-panel TTL Sync connector and its waveform relationship."""
+    return agilent33500b.configure_sync(enabled, mode, polarity)
+
+
+@mcp.tool(name="agilent33500b_set_mode_enabled", annotations=STATE_CHANGE)
+def agilent33500b_set_mode_enabled(mode: str, enabled: bool) -> dict[str, Any]:
+    """Enable or disable AM/FM/PM/PWM/FSK/BPSK/SUM, sweep, or burst."""
+    return {"mode": mode.upper(), "enabled": agilent33500b.set_mode_enabled(mode, enabled)}
+
+
+@mcp.tool(name="agilent33500b_configure_modulation", annotations=STATE_CHANGE)
+def agilent33500b_configure_modulation(
+    mode: str,
+    source: str = "internal",
+    internal_function: str = "sine",
+    internal_frequency_hz: float = 100.0,
+    amount: float = 50.0,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure AM, FM, PM, PWM, FSK, BPSK, or SUM with model capability checks."""
+    return agilent33500b.configure_modulation(
+        mode, source, internal_function, internal_frequency_hz, amount, enabled
+    )
+
+
+@mcp.tool(name="agilent33500b_configure_sweep", annotations=STATE_CHANGE)
+def agilent33500b_configure_sweep(
+    start_frequency_hz: float,
+    stop_frequency_hz: float,
+    sweep_time_s: float = 1.0,
+    spacing: str = "linear",
+    trigger_source: str = "immediate",
+    marker_frequency_hz: float | None = None,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure linear/log sweep, trigger source, and optional Sync marker."""
+    return agilent33500b.configure_sweep(
+        start_frequency_hz,
+        stop_frequency_hz,
+        sweep_time_s,
+        spacing,
+        trigger_source,
+        marker_frequency_hz,
+        enabled,
+    )
+
+
+@mcp.tool(name="agilent33500b_configure_burst", annotations=STATE_CHANGE)
+def agilent33500b_configure_burst(
+    mode: str = "triggered",
+    cycles: int = 1,
+    period_s: float = 0.01,
+    phase_degrees: float = 0.0,
+    trigger_source: str = "immediate",
+    gate_polarity: str = "normal",
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure triggered or gated burst parameters and source."""
+    return agilent33500b.configure_burst(
+        mode,
+        cycles,
+        period_s,
+        phase_degrees,
+        trigger_source,
+        gate_polarity,
+        enabled,
+    )
+
+
+@mcp.tool(name="agilent33500b_trigger", annotations=STATE_CHANGE)
+def agilent33500b_trigger(confirm_trigger: bool = False) -> str:
+    """Send a guarded IEEE-488 bus trigger to an armed sweep or burst."""
+    return agilent33500b.trigger(confirm_trigger)
+
+
+@mcp.tool(name="agilent33500b_query_scpi", annotations=READ_ONLY)
+def agilent33500b_query_scpi(command: str) -> dict[str, str]:
+    """Send any non-destructive query documented by the 33500 Series manual."""
+    return {"command": command, "response": agilent33500b.query(command)}
+
+
+@mcp.tool(name="agilent33500b_write_scpi", annotations=STATE_CHANGE)
+def agilent33500b_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
+    """Send a protected setting command; destructive and raw output commands are guarded."""
+    unsafe_enabled = os.getenv("AGILENT33500B_ALLOW_UNSAFE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled. Set AGILENT33500B_ALLOW_UNSAFE=1 and pass "
+            "confirm_unsafe=true to enable it."
+        )
+    agilent33500b.write(command, allow_unsafe=confirm_unsafe and unsafe_enabled)
+    return "Command sent"
 
 
 @mcp.tool(name="afg2125_get_settings", annotations=READ_ONLY)
@@ -422,6 +642,7 @@ def main() -> None:
 atexit.register(discovery_backend.disconnect)
 atexit.register(dpo2012b_backend.disconnect)
 atexit.register(afg2125_backend.disconnect)
+atexit.register(agilent33500b_backend.disconnect)
 
 
 if __name__ == "__main__":

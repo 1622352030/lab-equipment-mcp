@@ -19,6 +19,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | --- | --- | --- | --- |
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
+| Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.
@@ -36,6 +37,9 @@ src/lab_equipment_mcp/
 |   `-- transports/
 |       `-- visa.py              # USBTMC/RS-232/LAN/GPIB VISA backend
 |-- devices/
+|   |-- agilent/
+|       |-- diagnostics.py       # 33500B Windows USB/VISA diagnostics
+|       `-- series_33500b.py     # Interfaces, options, functions, and safety
 |   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA diagnostics
 |       `-- dpo2012b.py          # DPO2012B identity, measurements, waveform
@@ -92,6 +96,8 @@ Device driver requirements:
 - DPO2012B: NI-VISA Runtime, TekVISA, or OpenChoice with USBTMC support.
 - AFG-2125: the GW Instek AFG-2000 USB CDC driver plus a VISA runtime. Windows should
   show `AFG CDC Device (COMx)`, exposed to VISA as `ASRLx::INSTR`.
+- 33500B Series: Keysight IO Libraries Suite or another VISA runtime with USBTMC,
+  VXI-11/socket, or GPIB support. USB uses the rear Type-B device port.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
   interface, and close vendor applications or other VISA/serial tools that hold an
   exclusive session.
@@ -289,6 +295,20 @@ The manual's `APPLy` commands automatically enable output, so the standard
 AFG-2125 configuration tools do not use them. Output enable requires
 `confirm_enable=true`. Raw unsafe commands additionally require
 `AFG2125_ALLOW_UNSAFE=1` and `confirm_unsafe=true`.
+
+## Agilent/Keysight 33500B Series Tools
+
+The series driver models USBTMC, LAN VXI-11, LAN SCPI socket port 5025, and GPIB as
+separate VISA interfaces. It identifies the exact model and installed options before
+enabling model behavior. The tested 33509B is one-channel, 20 MHz, and has no ARB
+option, so ARB commands are rejected on that instrument.
+
+Tools cover diagnosis, identity/capabilities, standard waveforms, load, pulse and
+waveform details, Sync, AM/FM/PM/PWM/FSK/BPSK/SUM, sweep, burst, guarded triggers,
+and protected generic SCPI access for the remaining manual-documented features.
+Output enable requires `confirm_enable=true`; `APPLy`, raw output switching, reset,
+self-test, calibration, licenses, destructive file operations, and security
+sanitization are blocked. See the [33500B guide](docs/agilent/33500B-Series.md).
 
 ## Add Another Device
 
