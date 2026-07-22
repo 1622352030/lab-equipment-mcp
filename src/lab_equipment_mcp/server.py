@@ -13,6 +13,8 @@ from .devices.agilent.series_33500b import Agilent33500B
 from .devices.catalog import list_device_profiles
 from .devices.gw_instek.afg_2125 import AFG2125
 from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_host
+from .devices.siglent.diagnostics import diagnose_host as diagnose_sdg1062x_host
+from .devices.siglent.sdg_1000x import SDG1000X
 from .devices.tektronix.diagnostics import diagnose_host
 from .devices.tektronix.dpo2012b import DPO2012B
 
@@ -20,9 +22,11 @@ discovery_backend = VisaBackend()
 dpo2012b_backend = VisaBackend()
 afg2125_backend = VisaBackend()
 agilent33500b_backend = VisaBackend()
+sdg1062x_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
 agilent33500b = Agilent33500B(agilent33500b_backend)
+sdg1062x = SDG1000X(sdg1062x_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -67,6 +71,12 @@ def afg2125_diagnose_setup() -> dict[str, Any]:
 def agilent33500b_diagnose_setup() -> dict[str, Any]:
     """Check 33500B USB enumeration, VISA resources, and PyVISA readiness."""
     return diagnose_agilent33500b_host(discovery_backend)
+
+
+@mcp.tool(name="sdg1062x_diagnose_setup", annotations=READ_ONLY)
+def sdg1062x_diagnose_setup() -> dict[str, Any]:
+    """Check Siglent SDG USB enumeration, VISA resources, and PyVISA readiness."""
+    return diagnose_sdg1062x_host(discovery_backend)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -130,12 +140,30 @@ def agilent33500b_connect(
     }
 
 
+@mcp.tool(name="sdg1062x_connect", annotations=STATE_CHANGE)
+def sdg1062x_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
+    """Connect to a Siglent SDG1032X/SDG1062X over a declared VISA interface."""
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = sdg1062x.connect(resource, timeout_ms)
+    return {
+        "resource": sdg1062x_backend.resource_name or "",
+        "interface_type": (
+            sdg1062x_backend.interface_type.value
+            if sdg1062x_backend.interface_type
+            else "unknown"
+        ),
+        "identity": identity,
+    }
+
+
 @mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)
 def disconnect_instrument() -> str:
     """Close all active instrument and discovery VISA sessions."""
     dpo2012b_backend.disconnect()
     afg2125_backend.disconnect()
     agilent33500b_backend.disconnect()
+    sdg1062x_backend.disconnect()
     discovery_backend.disconnect()
     return "Disconnected all instruments"
 
@@ -163,6 +191,14 @@ def agilent33500b_disconnect() -> str:
     return "33500B disconnected"
 
 
+@mcp.tool(name="sdg1062x_disconnect", annotations=STATE_CHANGE)
+def sdg1062x_disconnect() -> str:
+    """Close only the Siglent SDG connection."""
+    sdg1062x_backend.disconnect()
+    sdg1062x.identity = None
+    return "SDG1062X disconnected"
+
+
 @mcp.tool(name="identify_instrument", annotations=READ_ONLY)
 def identify_instrument() -> dict[str, str]:
     """Identify the only connected instrument; use prefixed tools when both are connected."""
@@ -170,6 +206,7 @@ def identify_instrument() -> dict[str, str]:
         ("DPO2012B", dpo2012b_backend),
         ("AFG-2125", afg2125_backend),
         ("33500B Series", agilent33500b_backend),
+        ("SDG1000X Series", sdg1062x_backend),
     ]
     connected = [(name, item) for name, item in connected if item.resource_name]
     if not connected:
@@ -211,6 +248,233 @@ def agilent33500b_identify() -> dict[str, str]:
         "resource": agilent33500b_backend.resource_name or "",
         "identity": agilent33500b_backend.query("*IDN?"),
     }
+
+
+@mcp.tool(name="sdg1062x_identify", annotations=READ_ONLY)
+def sdg1062x_identify() -> dict[str, str]:
+    """Return the connected Siglent SDG identity and VISA resource."""
+    return {
+        "resource": sdg1062x_backend.resource_name or "",
+        "identity": sdg1062x_backend.query("*IDN?"),
+    }
+
+
+@mcp.tool(name="sdg1062x_get_capabilities", annotations=READ_ONLY)
+def sdg1062x_get_capabilities() -> dict[str, Any]:
+    """Read model-specific channels, bandwidth, ARB, and interface capabilities."""
+    return sdg1062x.capabilities()
+
+
+@mcp.tool(name="sdg1062x_get_settings", annotations=READ_ONLY)
+def sdg1062x_get_settings(channel: int = 1) -> dict[str, Any]:
+    """Read output, waveform, modulation, sweep, burst, ARB, and sync settings."""
+    return sdg1062x.get_settings(channel)
+
+
+@mcp.tool(name="sdg1062x_set_output", annotations=STATE_CHANGE)
+def sdg1062x_set_output(
+    channel: int, enabled: bool, confirm_enable: bool = False
+) -> dict[str, Any]:
+    """Disable output freely or enable it after explicit cabling/load confirmation."""
+    state = sdg1062x.set_output(channel, enabled, confirm_enable=confirm_enable)
+    return {"channel": channel, "enabled": state, "verified_by_readback": True}
+
+
+@mcp.tool(name="sdg1062x_set_output_load", annotations=STATE_CHANGE)
+def sdg1062x_set_output_load(
+    channel: int, load_ohms: float | None = None
+) -> dict[str, Any]:
+    """Set expected output load, or null for high impedance, while output is disabled."""
+    return sdg1062x.set_output_load(channel, load_ohms)
+
+
+@mcp.tool(name="sdg1062x_set_output_polarity", annotations=STATE_CHANGE)
+def sdg1062x_set_output_polarity(channel: int, polarity: str) -> dict[str, Any]:
+    """Set normal or inverted channel polarity while output is disabled."""
+    return sdg1062x.set_output_polarity(channel, polarity)
+
+
+@mcp.tool(name="sdg1062x_set_waveform", annotations=STATE_CHANGE)
+def sdg1062x_set_waveform(
+    channel: int,
+    function: str,
+    frequency_hz: float | None = None,
+    amplitude_vpp: float | None = None,
+    offset_volts: float | None = None,
+) -> dict[str, Any]:
+    """Configure a channel waveform with output disabled and SCPI read-back."""
+    return sdg1062x.set_waveform(
+        channel, function, frequency_hz, amplitude_vpp, offset_volts
+    )
+
+
+@mcp.tool(name="sdg1062x_set_waveform_detail", annotations=STATE_CHANGE)
+def sdg1062x_set_waveform_detail(
+    channel: int,
+    duty_percent: float | None = None,
+    symmetry_percent: float | None = None,
+    phase_degrees: float | None = None,
+    pulse_width_s: float | None = None,
+    rise_s: float | None = None,
+    fall_s: float | None = None,
+    delay_s: float | None = None,
+) -> dict[str, Any]:
+    """Set duty, symmetry, phase, pulse width, edges, or delay with read-back."""
+    return sdg1062x.set_waveform_detail(
+        channel,
+        duty_percent,
+        symmetry_percent,
+        phase_degrees,
+        pulse_width_s,
+        rise_s,
+        fall_s,
+        delay_s,
+    )
+
+
+@mcp.tool(name="sdg1062x_set_mode_enabled", annotations=STATE_CHANGE)
+def sdg1062x_set_mode_enabled(channel: int, mode: str, enabled: bool) -> dict[str, Any]:
+    """Enable or disable modulation, sweep, or burst while output is disabled."""
+    return {
+        "channel": channel,
+        "mode": mode.upper(),
+        "enabled": sdg1062x.set_mode_enabled(channel, mode, enabled),
+    }
+
+
+@mcp.tool(name="sdg1062x_configure_modulation", annotations=STATE_CHANGE)
+def sdg1062x_configure_modulation(
+    channel: int,
+    mode: str,
+    source: str = "internal",
+    modulation_wave: str = "sine",
+    modulation_frequency_hz: float = 100.0,
+    amount: float = 50.0,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure AM/DSB-AM/FM/PM/PWM/ASK/FSK/PSK with guarded output state."""
+    return sdg1062x.configure_modulation(
+        channel,
+        mode,
+        source,
+        modulation_wave,
+        modulation_frequency_hz,
+        amount,
+        enabled,
+    )
+
+
+@mcp.tool(name="sdg1062x_configure_sweep", annotations=STATE_CHANGE)
+def sdg1062x_configure_sweep(
+    channel: int,
+    start_frequency_hz: float,
+    stop_frequency_hz: float,
+    sweep_time_s: float = 1.0,
+    spacing: str = "linear",
+    direction: str = "up",
+    trigger_source: str = "internal",
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure linear, logarithmic, or stepped frequency sweep."""
+    return sdg1062x.configure_sweep(
+        channel,
+        start_frequency_hz,
+        stop_frequency_hz,
+        sweep_time_s,
+        spacing,
+        direction,
+        trigger_source,
+        enabled,
+    )
+
+
+@mcp.tool(name="sdg1062x_configure_burst", annotations=STATE_CHANGE)
+def sdg1062x_configure_burst(
+    channel: int,
+    mode: str = "ncycle",
+    cycles: int | None = 1,
+    period_s: float = 0.01,
+    phase_degrees: float = 0.0,
+    trigger_source: str = "internal",
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Configure N-cycle, infinite, or gated burst behavior."""
+    return sdg1062x.configure_burst(
+        channel, mode, cycles, period_s, phase_degrees, trigger_source, enabled
+    )
+
+
+@mcp.tool(name="sdg1062x_trigger", annotations=STATE_CHANGE)
+def sdg1062x_trigger(channel: int, mode: str, confirm_trigger: bool = False) -> str:
+    """Send a guarded manual trigger to an armed sweep or burst."""
+    return sdg1062x.trigger(channel, mode, confirm_trigger=confirm_trigger)
+
+
+@mcp.tool(name="sdg1062x_configure_sync", annotations=STATE_CHANGE)
+def sdg1062x_configure_sync(
+    enabled: bool, source_channel: int = 1
+) -> dict[str, Any]:
+    """Configure the rear Aux In/Out CMOS Sync output and source channel."""
+    return sdg1062x.configure_sync(enabled, source_channel)
+
+
+@mcp.tool(name="sdg1062x_copy_channel", annotations=STATE_CHANGE)
+def sdg1062x_copy_channel(source_channel: int, target_channel: int) -> dict[str, Any]:
+    """Copy channel parameters after verifying that both outputs are disabled."""
+    return sdg1062x.copy_channel(source_channel, target_channel)
+
+
+@mcp.tool(name="sdg1062x_select_arbitrary_waveform", annotations=STATE_CHANGE)
+def sdg1062x_select_arbitrary_waveform(
+    channel: int, index: int | None = None, name: str | None = None
+) -> dict[str, Any]:
+    """Select one built-in ARB index or one safe user waveform name."""
+    return sdg1062x.select_arbitrary_waveform(channel, index=index, name=name)
+
+
+@mcp.tool(name="sdg1062x_upload_arbitrary_waveform", annotations=STATE_CHANGE)
+def sdg1062x_upload_arbitrary_waveform(
+    channel: int,
+    name: str,
+    points: list[float],
+    frequency_hz: float = 1000.0,
+    amplitude_vpp: float = 1.0,
+    offset_volts: float = 0.0,
+    phase_degrees: float = 0.0,
+) -> dict[str, Any]:
+    """Upload 2..16384 normalized points as a 16-bit little-endian user ARB."""
+    return sdg1062x.upload_arbitrary_waveform(
+        channel,
+        name,
+        points,
+        frequency_hz,
+        amplitude_vpp,
+        offset_volts,
+        phase_degrees,
+    )
+
+
+@mcp.tool(name="sdg1062x_query_scpi", annotations=READ_ONLY)
+def sdg1062x_query_scpi(command: str) -> dict[str, str]:
+    """Send a non-destructive query documented by the Siglent programming guide."""
+    return {"command": command, "response": sdg1062x.query(command)}
+
+
+@mcp.tool(name="sdg1062x_write_scpi", annotations=STATE_CHANGE)
+def sdg1062x_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
+    """Send a protected setting command; destructive and raw output commands are guarded."""
+    unsafe_enabled = os.getenv("SDG1062X_ALLOW_UNSAFE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled. Set SDG1062X_ALLOW_UNSAFE=1 and pass "
+            "confirm_unsafe=true to enable it."
+        )
+    sdg1062x.write(command, allow_unsafe=confirm_unsafe and unsafe_enabled)
+    return "Command sent"
 
 
 @mcp.tool(name="agilent33500b_get_capabilities", annotations=READ_ONLY)
@@ -643,6 +907,7 @@ atexit.register(discovery_backend.disconnect)
 atexit.register(dpo2012b_backend.disconnect)
 atexit.register(afg2125_backend.disconnect)
 atexit.register(agilent33500b_backend.disconnect)
+atexit.register(sdg1062x_backend.disconnect)
 
 
 if __name__ == "__main__":

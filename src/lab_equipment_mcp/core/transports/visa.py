@@ -203,6 +203,13 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"SCPI write failed: {exc}") from exc
 
+    def write_raw(self, data: bytes) -> int:
+        with self._lock:
+            try:
+                return int(self.instrument().write_raw(data))
+            except Exception as exc:
+                raise ScopeError(f"SCPI binary write failed: {exc}") from exc
+
     def query_ascii_values(self, command: str) -> list[float]:
         with self._lock:
             try:

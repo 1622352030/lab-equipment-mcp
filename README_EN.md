@@ -20,6 +20,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
+| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB identity/read-back tested; waveform output pending manual observation |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.
@@ -40,6 +41,9 @@ src/lab_equipment_mcp/
 |   |-- agilent/
 |       |-- diagnostics.py       # 33500B Windows USB/VISA diagnostics
 |       `-- series_33500b.py     # Interfaces, options, functions, and safety
+|   |-- siglent/
+|       |-- diagnostics.py       # SDG Windows USB/VISA diagnostics
+|       `-- sdg_1000x.py         # SDG1062X dual-channel, modes, ARB, and safety
 |   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA diagnostics
 |       `-- dpo2012b.py          # DPO2012B identity, measurements, waveform
@@ -98,6 +102,8 @@ Device driver requirements:
   show `AFG CDC Device (COMx)`, exposed to VISA as `ASRLx::INSTR`.
 - 33500B Series: Keysight IO Libraries Suite or another VISA runtime with USBTMC,
   VXI-11/socket, or GPIB support. USB uses the rear Type-B device port.
+- SDG1000X/SDG1062X: NI-VISA Runtime or another USBTMC-capable VISA runtime. The
+  rear Type-B Device port is USBTMC; the Siglent IVI package is not required.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
   interface, and close vendor applications or other VISA/serial tools that hold an
   exclusive session.
@@ -309,6 +315,17 @@ and protected generic SCPI access for the remaining manual-documented features.
 Output enable requires `confirm_enable=true`; `APPLy`, raw output switching, reset,
 self-test, calibration, licenses, destructive file operations, and security
 sanitization are blocked. See the [33500B guide](docs/agilent/33500B-Series.md).
+
+## Siglent SDG1000X / SDG1062X Tools
+
+The Siglent driver provides independent CH1/CH2 control, output load/polarity, standard
+waveforms and pulse details, modulation, sweep, burst, guarded manual triggers, Aux In/Out
+Sync, channel copy, ARB selection, and binary ARB upload up to 16 kpts. It models USBTMC,
+LAN VXI-11, LAN socket 5025, and optional GPIB separately.
+
+USB identity and settings read-back are tested on an SDG1062X. Physical waveform output is
+pending manual observation; LAN and GPIB remain untested. See the
+[SDG1000X guide](docs/siglent/SDG1000X.md).
 
 ## Add Another Device
 

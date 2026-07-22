@@ -18,3 +18,11 @@ def test_catalog_exposes_device_interfaces() -> None:
         "lan-socket",
         "gpib",
     }
+    assert devices[3]["vendor"] == "Siglent"
+    assert "SDG1062X" in devices[3]["model"]
+    assert {item["interface_type"] for item in devices[3]["interfaces"]} == {
+        "usbtmc",
+        "lan-vxi11",
+        "lan-socket",
+        "gpib",
+    }
