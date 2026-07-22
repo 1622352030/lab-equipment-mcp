@@ -297,6 +297,11 @@ AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使�
 `afg2125_set_output(enabled=true)` 还必须传入 `confirm_enable=true`。原始高风险
 命令需要 `AFG2125_ALLOW_UNSAFE=1` 和 `confirm_unsafe=true` 双重确认。
 
+33500B 系列和 SDG1062X 的输出开启同样必须传入 `confirm_enable=true`。两者的
+复位、校准、固件、许可证、破坏性文件操作和原始输出切换默认禁止；确需使用受保护的
+高风险通用 SCPI 时，必须分别设置 `AGILENT33500B_ALLOW_UNSAFE=1` 或
+`SDG1062X_ALLOW_UNSAFE=1`，并同时传入 `confirm_unsafe=true`。
+
 ## Agilent/Keysight 33500B 系列工具
 
 系列驱动将 USBTMC、LAN VXI-11、LAN SCPI Socket 5025 和 GPIB 建模为独立
@@ -305,9 +310,110 @@ VISA 接口。连接时识别精确型号并读取选件后再决定能力。当
 
 工具覆盖诊断、身份/能力、标准波形、负载、脉冲和波形细节、SYNC、AM/FM/PM/
 PWM/FSK/BPSK/SUM、Sweep、Burst、受保护触发，以及手册其余远程功能所需的
-通用 SCPI 接口。输出开启必须传入 `confirm_enable=true`；`APPLy`、原始输出切换、
-复位、自检、校准、许可证、破坏性文件操作和安全擦除默认禁止。详见
+通用 SCPI 接口。
+
+- `agilent33500b_diagnose_setup`：检查 Windows USB 枚举、VISA Runtime、PyVISA
+  和可识别的 33500B 系列资源
+- `agilent33500b_connect`：自动发现或连接指定 USBTMC、LAN VXI-11/Socket 或 GPIB
+  VISA 地址，并读取精确型号、固件和选件
+- `agilent33500b_identify`、`agilent33500b_disconnect`：单独识别或断开 33500B
+  系列设备
+- `agilent33500b_get_capabilities`：读取型号、固件、选件、通道数、带宽、ARB能力和
+  支持接口
+- `agilent33500b_get_settings`：读取输出、基础波形、SYNC、调制、Sweep 和 Burst 状态
+- `agilent33500b_set_waveform`：在输出关闭时设置正弦、方波、三角波、斜波、脉冲、
+  PRBS、噪声或 DC 的频率、幅度和偏置
+- `agilent33500b_set_output_load`：设置 1 Ω 到 10 kΩ 的预期负载，或设为高阻
+- `agilent33500b_set_waveform_detail`：设置方波占空比、斜波对称性、相位或输出极性
+- `agilent33500b_configure_pulse`：设置脉冲周期、宽度/占空比及上升和下降时间
+- `agilent33500b_configure_sync`：配置前面板 TTL Sync 输出、模式和极性
+- `agilent33500b_set_mode_enabled`：单独启用或关闭调制、Sweep 或 Burst 模式
+- `agilent33500b_configure_modulation`：配置 AM、FM、PM、PWM、FSK、BPSK 或 SUM，
+  并按型号和选件检查能力
+- `agilent33500b_configure_sweep`：配置线性/对数扫频、触发源和可选 Sync 标记频率
+- `agilent33500b_configure_burst`：配置触发或门控 Burst、周期数、相位和触发源
+- `agilent33500b_trigger`：经过 `confirm_trigger=true` 确认后向已准备的 Sweep/Burst
+  发送总线触发
+- `agilent33500b_set_output`：自由关闭输出；开启时必须传入 `confirm_enable=true`
+- `agilent33500b_query_scpi`、`agilent33500b_write_scpi`：受保护的通用 SCPI 查询和
+  设置接口
+
+当前实测 33509B 没有 ARB 选件，因此能力查询会报告 ARB 不可用，驱动也会拒绝相关
+功能，而不是假定手册中的系列选件已经安装。详细接口、型号差异和实机验收记录见
 [33500B 系列说明](docs/agilent/33500B-Series.md)。
+
+示例提示词：
+
+```text
+诊断并连接 33500B 系列信号发生器，读取精确型号、固件、已安装选件和当前设置，
+保持输出关闭。
+```
+
+```text
+保持 33500B 输出关闭，配置 10 kHz、1 Vpp、0 V 偏置的正弦波，设置高阻负载并回读；
+完成后再询问我是否开启输出。
+```
+
+```text
+把 33500B 配置为 1 kHz 到 5 kHz、1 秒的线性扫频，使用内部立即触发；不要开启输出。
+```
+
+## Siglent SDG1000X / SDG1062X 工具
+
+SDG1000X 系列驱动支持 SDG1032X 和双通道 SDG1062X。USB Type-B 实际通信方式为
+USBTMC/VISA，不是串口；LAN VXI-11、LAN SCPI Socket 5025 和选配 GPIB 也作为独立
+接口建模。当前 SDG1062X 已通过 DPO2012B 双通道物理闭环验收。
+
+- `sdg1062x_diagnose_setup`：检查 Siglent USB 枚举、VISA Runtime、PyVISA 和可识别
+  的 SDG1000X 资源
+- `sdg1062x_connect`：自动发现或连接指定 USBTMC、LAN 或 GPIB VISA 地址，并验证
+  SDG1032X/SDG1062X 身份
+- `sdg1062x_identify`、`sdg1062x_disconnect`：单独识别或断开 Siglent SDG
+- `sdg1062x_get_capabilities`：读取通道数、最大频率、采样率、垂直分辨率、ARB点数和
+  支持接口
+- `sdg1062x_get_settings`：按通道读取输出、基础波形、调制、Sweep、Burst、ARB 和
+  Sync 状态
+- `sdg1062x_set_waveform`：在指定通道输出关闭时设置基础波形、频率、幅度和偏置
+- `sdg1062x_set_waveform_detail`：设置占空比、对称性、相位、脉宽、边沿或延迟
+- `sdg1062x_set_output_load`、`sdg1062x_set_output_polarity`：设置通道预期负载和
+  正常/反相极性
+- `sdg1062x_set_mode_enabled`：按通道启用或关闭调制、Sweep 或 Burst
+- `sdg1062x_configure_modulation`：配置 AM、DSB-AM、FM、PM、PWM、ASK、FSK 或 PSK
+- `sdg1062x_configure_sweep`：配置线性、对数或步进扫频、方向和触发源
+- `sdg1062x_configure_burst`：配置 N周期、无限周期或门控 Burst
+- `sdg1062x_trigger`：经过 `confirm_trigger=true` 确认后触发指定通道的 Sweep/Burst
+- `sdg1062x_configure_sync`：配置后面板 Aux In/Out CMOS Sync 输出及源通道
+- `sdg1062x_copy_channel`：在两路输出均关闭时复制通道参数并回读验证
+- `sdg1062x_select_arbitrary_waveform`：选择内建 ARB 编号或用户任意波名称
+- `sdg1062x_upload_arbitrary_waveform`：上传 2–16,384 个 `-1..1` 归一化点，使用
+  16位小端二进制传输，并设置频率、幅度、偏置和相位
+- `sdg1062x_set_output`：按通道自由关闭输出；开启时必须传入 `confirm_enable=true`
+- `sdg1062x_query_scpi`、`sdg1062x_write_scpi`：受保护的通用 SCPI 查询和设置接口
+
+SDG1062X 的两个通道共享同一个 VISA 仪器连接，但每个通道的输出、基础波形和高级模式
+独立配置。与 DPO2012B、AFG-2125 和 33500B 的 VISA 会话相互独立。详细接口、固件
+差异和闭环测试结果见 [SDG1000X / SDG1062X 说明](docs/siglent/SDG1000X.md)。
+
+示例提示词：
+
+```text
+诊断并连接 SDG1062X，读取两个通道的设置和设备能力，保持 CH1、CH2 输出关闭。
+```
+
+```text
+保持两路输出关闭，将 SDG1062X CH1 配置为 1 kHz、1 Vpp 正弦波，CH2 配置为
+2.5 kHz、0.8 Vpp、30% 占空比方波；回读后再询问我是否同时开启两路输出。
+```
+
+```text
+向 SDG1062X CH1 上传一个 8 点归一化任意波，设为 1 kHz、0.5 Vpp、0 V 偏置，
+验证选择和参数回读，但不要开启输出。
+```
+
+```text
+将 SDG1062X CH1 配置为 1 kHz 到 5 kHz、1 秒线性扫频，并使用 DPO2012B CH1
+进行物理闭环验收；测试后关闭输出并恢复原设置。
+```
 
 ## 增加其他设备
 
