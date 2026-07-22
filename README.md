@@ -19,7 +19,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
 | GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
-| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 身份和回读已测试；输出波形待肉眼验收 |
+| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 双通道波形、模式和 ARB 已完成示波器闭环验收 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
 协议，并不是串口 COM 设备，因此不能使用普通串口 MCP 控制。

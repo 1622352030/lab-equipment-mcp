@@ -126,6 +126,29 @@ def parse_on_off(value: str) -> bool:
     raise ScopeError(f"Unable to parse SDG state: {value!r}")
 
 
+def parse_modulation_response(response: str) -> dict[str, str]:
+    payload = re.sub(r"^\s*C[12]:MDWV\s*", "", response.strip(), flags=re.I)
+    fields = [field.strip().strip('"') for field in payload.split(",") if field.strip()]
+    result: dict[str, str] = {}
+    index = 0
+    if fields and fields[0].upper() in MODULATION_TYPES:
+        result["TYPE"] = fields[0].upper()
+        index = 1
+    while index < len(fields):
+        token = fields[index].upper()
+        if token == "CARR":
+            break
+        if token in MODULATION_TYPES:
+            result["TYPE"] = token
+            index += 1
+            continue
+        if index + 1 >= len(fields):
+            break
+        result[token] = fields[index + 1]
+        index += 2
+    return result
+
+
 class SDG1000X:
     profile = SIGLENT_SDG1000X_PROFILE
 
@@ -442,16 +465,19 @@ class SDG1000X:
         wave = modulation_wave.strip().upper()
         if wave not in MODULATION_WAVES:
             raise ValueError("Unsupported modulation waveform")
+        internal_maximum = 50_000 if mode in {"ASK", "FSK"} else 20_000
         if source_token == "INT" and (
             not math.isfinite(modulation_frequency_hz)
-            or not 0.001 <= modulation_frequency_hz <= 20_000
+            or not 0.001 <= modulation_frequency_hz <= internal_maximum
         ):
-            raise ValueError("modulation_frequency_hz must be between 0.001 and 20000")
+            raise ValueError(
+                f"modulation_frequency_hz must be between 0.001 and {internal_maximum}"
+            )
         if mode == "AM" and not 0 <= amount <= 120:
             raise ValueError("AM depth must be between 0 and 120 percent")
         if mode == "PM" and not 0 <= amount <= 360:
             raise ValueError("PM deviation must be between 0 and 360 degrees")
-        if mode in {"FM", "PWM", "ASK", "FSK", "PSK"} and (
+        if mode in {"FM", "PWM", "FSK"} and (
             not math.isfinite(amount) or amount < 0
         ):
             raise ValueError("amount must be non-negative and finite")
@@ -465,26 +491,54 @@ class SDG1000X:
             parts.extend([frequency_key, f"{modulation_frequency_hz:.12g}"])
             if mode not in {"ASK", "FSK", "PSK"}:
                 parts.extend(["MDSP", wave])
-        amount_key = {
+        amount_keys = {
             "AM": "DEPTH",
             "FM": "DEVI",
             "PM": "DEVI",
             "PWM": "DEVI",
-            "ASK": "AAMP",
             "FSK": "HFRQ",
-            "PSK": "PHSE",
-            "DSBAM": "DEPTH",
-        }[mode]
-        parts.extend([amount_key, f"{amount:.12g}"])
+        }
+        amount_key = amount_keys.get(mode)
+        if amount_key is not None:
+            parts.extend([amount_key, f"{amount:.12g}"])
         self.backend.write(f"C{channel}:MDWV " + ",".join(parts))
         response = self.backend.query(f"C{channel}:MDWV?")
+        parameters = parse_modulation_response(response)
+        if parameters.get("STATE", "").upper() != "ON":
+            raise ScopeError("Modulation state read-back does not match the request")
+        if parameters.get("TYPE", "").upper() != mode:
+            raise ScopeError("Modulation type read-back does not match the request")
+        if parameters.get("SRC", "").upper() != source_token:
+            raise ScopeError("Modulation source read-back does not match the request")
+        if source_token == "INT":
+            frequency_key = "KFRQ" if mode in {"ASK", "FSK", "PSK"} else "FRQ"
+            actual_frequency = parameters.get(frequency_key)
+            if actual_frequency is None or not math.isclose(
+                parse_number(actual_frequency),
+                modulation_frequency_hz,
+                rel_tol=1e-6,
+                abs_tol=1e-9,
+            ):
+                raise ScopeError("Modulation frequency read-back does not match the request")
+            if mode not in {"ASK", "FSK", "PSK"} and parameters.get(
+                "MDSP", ""
+            ).upper() != wave:
+                raise ScopeError("Modulation waveform read-back does not match the request")
+        if amount_key is not None:
+            actual_amount = parameters.get(amount_key)
+            if actual_amount is None or not math.isclose(
+                parse_number(actual_amount), amount, rel_tol=1e-6, abs_tol=1e-12
+            ):
+                raise ScopeError("Modulation amount read-back does not match the request")
         if not enabled:
             self.set_mode_enabled(channel, "modulation", False)
         return {
             "channel": channel,
             "response": response,
+            "parameters": parameters,
             "enabled": enabled,
             "verified_by_readback": True,
+            "amount_supported": amount_key is not None,
         }
 
     def configure_sweep(

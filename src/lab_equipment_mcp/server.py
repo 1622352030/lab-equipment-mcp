@@ -352,7 +352,7 @@ def sdg1062x_configure_modulation(
     amount: float = 50.0,
     enabled: bool = True,
 ) -> dict[str, Any]:
-    """Configure AM/DSB-AM/FM/PM/PWM/ASK/FSK/PSK with guarded output state."""
+    """Configure modulation; ASK/PSK/DSB-AM ignore amount because the model has none."""
     return sdg1062x.configure_modulation(
         channel,
         mode,

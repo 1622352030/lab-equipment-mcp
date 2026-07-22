@@ -20,7 +20,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
-| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB identity/read-back tested; waveform output pending manual observation |
+| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
 instrument, not a serial COM-port device.
@@ -323,8 +323,9 @@ waveforms and pulse details, modulation, sweep, burst, guarded manual triggers, 
 Sync, channel copy, ARB selection, and binary ARB upload up to 16 kpts. It models USBTMC,
 LAN VXI-11, LAN socket 5025, and optional GPIB separately.
 
-USB identity and settings read-back are tested on an SDG1062X. Physical waveform output is
-pending manual observation; LAN and GPIB remain untested. See the
+USB identity, dual-channel waveforms, modulation, sweep, burst, and ARB are closed-loop
+tested with a DPO2012B. Sync/Aux, external modulation/triggering, LAN, and GPIB remain
+untested. See the
 [SDG1000X guide](docs/siglent/SDG1000X.md).
 
 ## Add Another Device

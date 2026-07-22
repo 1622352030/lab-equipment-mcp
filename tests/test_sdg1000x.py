@@ -9,6 +9,7 @@ from lab_equipment_mcp.devices.siglent.sdg_1000x import (
     SDG1000X,
     SIGLENT_SDG1000X_PROFILE,
     parse_identity,
+    parse_modulation_response,
     parse_parameter_response,
 )
 
@@ -147,12 +148,25 @@ def test_identity_accepts_sdg1062x_and_rejects_other_models() -> None:
 
 
 def test_parser_accepts_compact_enabled_modulation_response() -> None:
-    parsed = parse_parameter_response(
-        "C1:MDWVAM,STATE,ON,SRC,INT,FRQ,100HZ,DEPTH,50", "MDWV"
+    parsed = parse_modulation_response(
+        "C1:MDWVAM,STATE,ON,SRC,INT,FRQ,100HZ,DEPTH,50"
     )
     assert parsed["TYPE"] == "AM"
     assert parsed["STATE"] == "ON"
     assert parsed["DEPTH"] == "50"
+
+
+def test_parser_accepts_state_then_modulation_type() -> None:
+    parsed = parse_modulation_response(
+        "C1:MDWV STATE,ON,FSK,SRC,INT,KFRQ,50HZ,HFRQ,5000HZ,CARR,WVTP,SINE"
+    )
+    assert parsed == {
+        "STATE": "ON",
+        "TYPE": "FSK",
+        "SRC": "INT",
+        "KFRQ": "50HZ",
+        "HFRQ": "5000HZ",
+    }
 
 
 def test_connect_and_capabilities(connected) -> None:
@@ -206,6 +220,19 @@ def test_modulation_sweep_burst_and_sync_are_configurable(connected) -> None:
     burst = driver.configure_burst(1, cycles=5, period_s=0.01)
     assert burst["enabled"] is True
     assert driver.configure_sync(True, 2)["source_channel"] == 2
+
+
+def test_keyed_and_dsb_modulation_do_not_claim_unsupported_amount(connected) -> None:
+    driver, backend = connected
+    for mode in ("ASK", "PSK", "DSBAM"):
+        result = driver.configure_modulation(1, mode, amount=123)
+        assert result["amount_supported"] is False
+    modulation_writes = [command for command in backend.writes if "MDWV ASK," in command]
+    assert modulation_writes and "AAMP" not in modulation_writes[-1]
+    modulation_writes = [command for command in backend.writes if "MDWV PSK," in command]
+    assert modulation_writes and "PHSE" not in modulation_writes[-1]
+    modulation_writes = [command for command in backend.writes if "MDWV DSBAM," in command]
+    assert modulation_writes and "DEPTH" not in modulation_writes[-1]
 
 
 def test_copy_channel_requires_disabled_outputs_and_verifies(connected) -> None:
