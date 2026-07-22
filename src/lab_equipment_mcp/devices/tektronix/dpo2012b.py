@@ -138,8 +138,7 @@ class DPO2012B:
             raise ValueError("max_points must be between 10 and 10000")
 
         record_length = int(float(self.backend.query("HORizontal:RECOrdlength?")))
-        requested_stop = stop or min(record_length, start + max_points - 1)
-        requested_stop = min(requested_stop, record_length, start + max_points - 1)
+        requested_stop = min(stop or record_length, record_length)
         if requested_stop < start:
             raise ValueError("stop must not be smaller than start")
 
@@ -159,9 +158,18 @@ class DPO2012B:
         y_unit = self.backend.query("WFMOutpre:YUNit?").strip('"')
         raw_values = self.backend.query_ascii_values("CURVe?")
 
+        original_point_count = len(raw_values)
+        source_indices = list(range(original_point_count))
+        if original_point_count > max_points:
+            source_indices = [
+                round(index * (original_point_count - 1) / (max_points - 1))
+                for index in range(max_points)
+            ]
+            raw_values = [raw_values[index] for index in source_indices]
+
         times = [
-            x_zero + ((start - 1 + index) - point_offset) * x_increment
-            for index in range(len(raw_values))
+            x_zero + ((start - 1 + source_index) - point_offset) * x_increment
+            for source_index in source_indices
         ]
         values = [(raw - y_offset) * y_multiplier + y_zero for raw in raw_values]
         return {
@@ -169,8 +177,10 @@ class DPO2012B:
             "resource": self.backend.resource_name,
             "record_length": record_length,
             "start": start,
-            "stop": start + len(values) - 1,
+            "stop": requested_stop,
+            "source_point_count": original_point_count,
             "point_count": len(values),
+            "downsampled": original_point_count > len(values),
             "x_unit": x_unit,
             "y_unit": y_unit,
             "times": times,

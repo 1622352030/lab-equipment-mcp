@@ -36,9 +36,16 @@ def _windows_scope_devices() -> list[dict[str, Any]]:
             and "DPO2012B" not in upper
         ):
             continue
+        driver_match = re.search(
+            r"(?:Driver Name|驱动程序名称)\s*:\s*([^\r\n]+)", block, re.I
+        )
         devices.append(
             {
-                "raw": block.strip(),
+                "name": "Tektronix DPO2012B USBTMC",
+                "usb_id": (
+                    f"VID_{TEKTRONIX_USB_VENDOR_ID}&PID_{DPO2012B_USB_PRODUCT_ID}"
+                ),
+                "driver_name": driver_match.group(1).strip() if driver_match else None,
                 "is_dpo2012b": (
                     "DPO2012B" in upper
                     or (

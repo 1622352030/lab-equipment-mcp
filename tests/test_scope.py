@@ -44,7 +44,21 @@ def test_waveform_scaling() -> None:
     assert result["times"] == [0.0, 0.001, 0.002]
     assert result["values"] == [0.0, 1.0, -1.0]
     assert result["point_count"] == 3
+    assert result["source_point_count"] == 3
+    assert result["downsampled"] is False
     assert "DATa:SOUrce CH1" in backend.writes
+
+
+def test_long_waveform_is_downsampled_across_the_requested_span() -> None:
+    backend = FakeBackend()
+    backend.query_ascii_values = lambda command: list(range(1000))
+    result = DPO2012B(backend).acquire_waveform("CH1", max_points=10)
+    assert result["point_count"] == 10
+    assert result["source_point_count"] == 1000
+    assert result["downsampled"] is True
+    assert result["times"][0] == 0
+    assert result["times"][-1] == pytest.approx(0.999)
+    assert "DATa:STOP 1000" in backend.writes
 
 
 def test_measurement() -> None:
