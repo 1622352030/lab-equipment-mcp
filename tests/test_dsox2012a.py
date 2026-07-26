@@ -24,13 +24,15 @@ class FakeBackend:
         responses = {
             ":WAVEFORM:PREAMBLE?": "2,0,3,0,0.001,0,0,0.5,0,0",
             ":MEASURE:FREQUENCY?": "1000",
+            ":CHANNEL1:DISPLAY?": "1",
+            ":CHANNEL2:DISPLAY?": "1",
+            ":TIMEBASE:MODE?": "MAIN",
         }
         return responses[command.upper()]
 
-    def query_ascii_values(self, command):
-        return [1.0, 3.0, -1.0]
-
     def query_raw(self, command):
+        if command == ":WAVeform:DATA?":
+            return b"#2101,3,-1\n"
         return b"#210hello\n"
 
     def write_raw(self, data):
@@ -54,7 +56,7 @@ def test_measurement_and_waveform_scaling():
     scope = AgilentDSOX2012A(FakeBackend())
     assert scope.measure("CH1", "frequency")["value"] == 1000
     result = scope.acquire_waveform("CH1")
-    assert result["values"] == [0.5, 1.5, -0.5]
+    assert result["values"] == [1.0, 3.0, -1.0]
     assert result["times"] == [0.0, 0.001, 0.002]
     assert ":MEASure:SOURce CHAN1" in scope.backend.writes
     assert ":DIGitize CHAN1" in scope.backend.writes

@@ -163,6 +163,8 @@ class AgilentDSOX2012A:
         self._require_connected()
         channel = normalize_channel(channel)
         measurement = normalize_measurement(measurement)
+        self.backend.write(":TIMebase:MODE MAIN")
+        self.backend.write(f":DIGitize {channel}")
         self.backend.write(f":MEASure:SOURce {channel}")
         command = f":MEASure:{measurement}?"
         value = float(self.backend.query(command))
@@ -178,21 +180,45 @@ class AgilentDSOX2012A:
         channel = normalize_channel(channel)
         if not 10 <= max_points <= 10000:
             raise ValueError("max_points must be between 10 and 10000")
-        self.backend.write(":TIMebase:MODE MAIN")
-        self.backend.write(f":DIGitize {channel}")
-        self.backend.write(f":WAVeform:SOURce {channel}")
-        self.backend.write(":WAVeform:FORMat ASCii")
-        self.backend.write(":WAVeform:POINts:MODE NORMal")
-        self.backend.write(f":WAVeform:POINts {max_points}")
-        preamble = [float(item) for item in self.backend.query(":WAVeform:PREamble?").split(",")]
-        if len(preamble) < 10:
-            raise ScopeError(f"Unexpected DSO-X waveform preamble: {preamble!r}")
-        values = self.backend.query_ascii_values(":WAVeform:DATA?")
+        display_states = {
+            item: self.backend.query(f":CHANnel{item}:DISPlay?") for item in (1, 2)
+        }
+        timebase_mode = self.backend.query(":TIMebase:MODE?")
+        try:
+            self.backend.write(":TIMebase:MODE MAIN")
+            self.backend.write(f":DIGitize {channel}")
+            self.backend.write(f":WAVeform:SOURce {channel}")
+            self.backend.write(":WAVeform:FORMat ASCii")
+            self.backend.write(":WAVeform:POINts:MODE NORMal")
+            self.backend.write(f":WAVeform:POINts {max_points}")
+            preamble = [
+                float(item) for item in self.backend.query(":WAVeform:PREamble?").split(",")
+            ]
+            if len(preamble) < 10:
+                raise ScopeError(f"Unexpected DSO-X waveform preamble: {preamble!r}")
+            raw_data = self.backend.query_raw(":WAVeform:DATA?")
+        finally:
+            for item, state in display_states.items():
+                self.backend.write(f":CHANnel{item}:DISPlay {state}")
+            self.backend.write(f":TIMebase:MODE {timebase_mode}")
+        payload = raw_data.strip()
+        if payload.startswith(b"#"):
+            digits = int(payload[1:2])
+            length_start = 2
+            length_end = length_start + digits
+            payload_length = int(payload[length_start:length_end])
+            payload = payload[length_end : length_end + payload_length]
+        try:
+            text = payload.decode("ascii").replace(";", ",")
+            values = [float(item) for item in text.split(",") if item.strip()]
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ScopeError("Unable to parse DSO-X ASCII waveform data block") from exc
         _, _, points, _, x_increment, x_origin, x_reference, y_increment, y_origin, y_reference = (
             preamble[:10]
         )
         times = [x_origin + (index - x_reference) * x_increment for index in range(len(values))]
-        scaled = [(raw - y_reference) * y_increment + y_origin for raw in values]
+        # ASCII waveform data is already converted to real Y-axis units by the scope.
+        scaled = values
         return {
             "channel": channel,
             "resource": self.backend.resource_name,
