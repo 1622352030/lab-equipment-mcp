@@ -972,15 +972,50 @@ def dpo2012b_acquire_waveform(
     start: int = 1,
     stop: int | None = None,
     max_points: int = 5000,
+    encoding: str = "ASCII",
+    width: int = 1,
 ) -> dict[str, Any]:
-    """Acquire up to 10,000 scaled waveform points from CH1 or CH2."""
-    return dpo2012b.acquire_waveform(channel, start, stop, max_points)
+    """Acquire scaled ASCII or IEEE-488.2 binary waveform points from CH1 or CH2."""
+    return dpo2012b.acquire_waveform(channel, start, stop, max_points, encoding, width)
 
 
 @mcp.tool(name="dpo2012b_query_scpi", annotations=READ_ONLY)
 def dpo2012b_query_scpi(command: str) -> dict[str, str]:
     """Send a read-only SCPI query to the connected DPO2012B."""
     return {"command": command, "response": dpo2012b.query(command)}
+
+
+@mcp.tool(name="dpo2012b_command", annotations=STATE_CHANGE)
+def dpo2012b_command(
+    command: str, query: bool = True, confirm_unsafe: bool = False
+) -> dict[str, str]:
+    """Execute any text SCPI command documented for the DPO2012B.
+
+    Use query=true for read-only queries. Writes are protected by the same unsafe-command
+    policy as dpo2012b_write_scpi.
+    """
+    unsafe_enabled = os.getenv("DPO2012B_ALLOW_UNSAFE", "").lower() in {"1", "true", "yes"}
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled by the server. Set DPO2012B_ALLOW_UNSAFE=1 in the MCP "
+            "server environment and pass confirm_unsafe=true to enable it."
+        )
+    response = dpo2012b.command(
+        command, query=query, allow_unsafe=confirm_unsafe and unsafe_enabled
+    )
+    return {"command": command, "query": str(query).lower(), "response": response}
+
+
+@mcp.tool(name="dpo2012b_query_binary", annotations=READ_ONLY)
+def dpo2012b_query_binary(command: str) -> dict[str, Any]:
+    """Run a documented binary query and return the response as Base64."""
+    return dpo2012b.query_binary(command)
+
+
+@mcp.tool(name="dpo2012b_capture_screenshot", annotations=READ_ONLY)
+def dpo2012b_capture_screenshot(image_format: str = "PNG") -> dict[str, Any]:
+    """Capture the DPO2012B screen via HARDCopy START as Base64 image data."""
+    return dpo2012b.capture_screenshot(image_format)
 
 
 @mcp.tool(name="dpo2012b_write_scpi", annotations=STATE_CHANGE)

@@ -219,9 +219,15 @@ class VisaBackend:
 
     def query_raw(self, command: str) -> bytes:
         with self._lock:
+            instrument = self.instrument()
+            previous_termination = instrument.read_termination
             try:
-                instrument = self.instrument()
+                # Text terminators can occur inside arbitrary binary payloads and
+                # cause PyVISA to return a truncated IEEE block.
+                instrument.read_termination = None
                 instrument.write(command)
                 return bytes(instrument.read_raw())
             except Exception as exc:
                 raise ScopeError(f"SCPI binary query failed: {exc}") from exc
+            finally:
+                instrument.read_termination = previous_termination

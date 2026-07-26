@@ -32,6 +32,10 @@ class FakeBackend:
         assert command == "CURVe?"
         return [1.0, 3.0, -1.0]
 
+    def query_raw(self, command: str) -> bytes:
+        assert command == "CURVe?"
+        return b"#14\x01\x02\xFE\xFF\n"
+
 
 def test_channel_normalization() -> None:
     assert normalize_channel("channel1") == "CH1"
@@ -67,6 +71,100 @@ def test_measurement() -> None:
     assert result["value"] == 1000
     assert result["unit"] == "Hz"
     assert result["valid"] is True
+
+
+def test_binary_waveform_scaling() -> None:
+    backend = FakeBackend()
+    result = DPO2012B(backend).acquire_waveform("CH1", max_points=10, encoding="RIBINARY", width=1)
+    assert result["encoding"] == "RIBINARY"
+    assert result["values"] == pytest.approx([0.0, 0.5, -1.5, -1.0])
+
+
+def test_programming_guide_measurement_aliases_are_supported() -> None:
+    backend = FakeBackend()
+    result = DPO2012B(backend).immediate_measurement("CH1", "PK2PK")
+    assert result["measurement"] == "PK2Pk"
+
+
+def test_binary_query_returns_base64() -> None:
+    import base64
+
+    class BinaryBackend(FakeBackend):
+        def query_raw(self, command: str) -> bytes:
+            assert command == "WFMOutpre?"
+            return b"#15hello\n"
+
+    backend = BinaryBackend()
+    result = DPO2012B(backend).query_binary("WFMOutpre?")
+    assert result["encoding"] == "base64"
+    assert base64.b64decode(result["data"]).startswith(b"#")
+
+
+def test_complete_scpi_entrypoint_rejects_query_write_mismatch() -> None:
+    scope = DPO2012B(FakeBackend())
+    with pytest.raises(ValueError, match="query=true"):
+        scope.command("CH1:SCAle 1", query=True)
+    with pytest.raises(ValueError, match="query=false"):
+        scope.command("CH1:SCAle?", query=False)
+
+
+def test_complete_scpi_entrypoint_writes_and_queries() -> None:
+    backend = FakeBackend()
+    scope = DPO2012B(backend)
+    assert scope.command("MEASUrement:IMMed:VALue?", query=True) == "1000"
+    assert scope.command("CH1:SCAle 1", query=False) == "Command sent"
+    assert backend.writes[-1] == "CH1:SCAle 1"
+
+
+def test_screenshot_sets_and_restores_format() -> None:
+    import base64
+
+    class ScreenshotBackend(FakeBackend):
+        def query(self, command: str) -> str:
+            if command == "SAVe:IMAGe:FILEFormat?":
+                return "BMP"
+            return super().query(command)
+
+        def query_raw(self, command: str) -> bytes:
+            assert command == "HARDCopy START"
+            return b"#17PNGDATA\n"
+
+    backend = ScreenshotBackend()
+    result = DPO2012B(backend).capture_screenshot("PNG")
+    assert result["format"] == "PNG"
+    assert result["byte_count"] == 7
+    assert base64.b64decode(result["data"]) == b"PNGDATA"
+    assert backend.writes == [
+        "SAVe:IMAGe:FILEFormat PNG",
+        "SAVe:IMAGe:FILEFormat BMP",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("image_format", "payload"),
+    [
+        ("PNG", b"\x89PNG\r\n\x1a\nDATA"),
+        ("BMP", b"BMDATA"),
+        ("TIFF", b"MM\x00*DATA"),
+    ],
+)
+def test_screenshot_accepts_raw_image_returned_by_real_firmware(
+    image_format: str, payload: bytes
+) -> None:
+    import base64
+
+    class ScreenshotBackend(FakeBackend):
+        def query(self, command: str) -> str:
+            if command == "SAVe:IMAGe:FILEFormat?":
+                return "PNG"
+            return super().query(command)
+
+        def query_raw(self, command: str) -> bytes:
+            assert command == "HARDCopy START"
+            return payload
+
+    result = DPO2012B(ScreenshotBackend()).capture_screenshot(image_format)
+    assert base64.b64decode(result["data"]) == payload
 
 
 def test_query_rejects_mixed_write_and_query_segments() -> None:

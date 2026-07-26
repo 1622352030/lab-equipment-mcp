@@ -119,3 +119,23 @@ def test_serial_session_config_is_applied() -> None:
     assert int(instrument.stop_bits) == 10
     assert int(instrument.parity) == 0
     assert instrument.flow_control == 0
+
+
+def test_binary_query_temporarily_disables_text_read_termination() -> None:
+    class Instrument:
+        read_termination = "\n"
+
+        def write(self, command: str) -> None:
+            assert command == "CURVE?"
+            assert self.read_termination is None
+
+        def read_raw(self) -> bytes:
+            assert self.read_termination is None
+            return b"#14\x01\n\x02\x03"
+
+    backend = VisaBackend()
+    backend._instrument = Instrument()
+    backend._resource_name = "USB0::scope::INSTR"
+
+    assert backend.query_raw("CURVE?") == b"#14\x01\n\x02\x03"
+    assert backend.instrument().read_termination == "\n"
