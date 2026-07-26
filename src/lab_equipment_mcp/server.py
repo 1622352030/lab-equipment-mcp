@@ -972,9 +972,11 @@ def dpo2012b_acquire_waveform(
     start: int = 1,
     stop: int | None = None,
     max_points: int = 5000,
+    encoding: str = "ASCII",
+    width: int = 1,
 ) -> dict[str, Any]:
-    """Acquire up to 10,000 scaled waveform points from CH1 or CH2."""
-    return dpo2012b.acquire_waveform(channel, start, stop, max_points)
+    """Acquire scaled ASCII or IEEE-488.2 binary waveform points from CH1 or CH2."""
+    return dpo2012b.acquire_waveform(channel, start, stop, max_points, encoding, width)
 
 
 @mcp.tool(name="dpo2012b_query_scpi", annotations=READ_ONLY)

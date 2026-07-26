@@ -58,6 +58,10 @@ def test_device_profile_rejects_duplicate_priorities() -> None:
         )
 
 
-def test_dpo2012b_declares_its_current_physical_interface() -> None:
-    assert DPO2012B_PROFILE.interface_types == {InterfaceType.USBTMC}
+def test_dpo2012b_declares_manual_documented_interfaces() -> None:
+    assert DPO2012B_PROFILE.interface_types == {
+        InterfaceType.USBTMC,
+        InterfaceType.LAN_VXI11,
+        InterfaceType.GPIB,
+    }
     assert DPO2012B_PROFILE.interfaces[0].required_drivers

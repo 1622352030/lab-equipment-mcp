@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import struct
 from typing import Any
 
 from ...core.errors import ScopeError
@@ -11,17 +12,42 @@ from ...core.transports.visa import VisaBackend, VisaResource
 VALID_CHANNELS = {"CH1", "CH2"}
 VALID_MEASUREMENTS = {
     "AMPLITUDE",
+    "AREA",
+    "BURST",
+    "CAREA",
+    "CMEAN",
+    "CRMS",
     "FREQUENCY",
+    "HIGH",
     "MAXIMUM",
     "MEAN",
     "MINIMUM",
+    "NDUty",
+    "NEDGECount",
+    "NOVershoot",
+    "NPULSECount",
+    "PEDGECount",
+    "PDUty",
     "PK2PK",
+    "PPULSECount",
+    "PHAse",
+    "POVershoot",
     "RMS",
     "PERIOD",
     "RISE",
     "FALL",
     "PWIDTH",
     "NWIDTH",
+    "LOW",
+}
+
+WAVEFORM_ENCODINGS = {
+    "ASCII",
+    "FASTEST",
+    "RIBINARY",
+    "RPBINARY",
+    "SRIBINARY",
+    "SRPBINARY",
 }
 
 DPO2012B_PROFILE = DeviceProfile(
@@ -34,6 +60,20 @@ DPO2012B_PROFILE = DeviceProfile(
             session=SessionConfig(),
             required_drivers=("NI-VISA Runtime", "TekVISA/OpenChoice"),
             connection_notes="Use the rear USB Type-B device port, not the front USB host port.",
+        ),
+        InterfaceSpec(
+            interface_type=InterfaceType.LAN_VXI11,
+            priority=20,
+            required_drivers=("NI-VISA Runtime", "TekVISA/OpenChoice"),
+            connection_notes="Requires the optional DPO2CONN Ethernet module; 10/100Base-T only.",
+        ),
+        InterfaceSpec(
+            interface_type=InterfaceType.GPIB,
+            priority=30,
+            required_drivers=("NI-VISA Runtime", "TekVISA/OpenChoice"),
+            connection_notes=(
+                "Requires a TEK-USB-488 adapter connected to the rear USB device port."
+            ),
         ),
     ),
 )
@@ -109,7 +149,38 @@ class DPO2012B:
     def immediate_measurement(self, channel: str, measurement: str) -> dict[str, Any]:
         channel = normalize_channel(channel)
         measurement = measurement.strip().upper()
-        if measurement not in VALID_MEASUREMENTS:
+        aliases = {
+            "PK2PK": "PK2Pk",
+            "FREQUENCY": "FREQuency",
+            "PERIOD": "PERIod",
+            "RMS": "RMS",
+            "PWIDTH": "PWIdth",
+            "NWIDTH": "NWIdth",
+            "RISE": "RISe",
+            "FALL": "FALL",
+            "MAXIMUM": "MAXimum",
+            "MINIMUM": "MINImum",
+            "AMPLITUDE": "AMPlitude",
+            "AREA": "AREa",
+            "BURST": "BURst",
+            "CAREA": "CARea",
+            "CMEAN": "CMEan",
+            "CRMS": "CRMs",
+            "HIGH": "HIGH",
+            "LOW": "LOW",
+            "DUTY": "PDUty",
+            "PDUTY": "PDUty",
+            "NDUTY": "NDUty",
+            "PEDGECOUNT": "PEDGECount",
+            "NEDGECOUNT": "NEDGECount",
+            "PPULSECOUNT": "PPULSECount",
+            "NPULSECOUNT": "NPULSECount",
+            "OVERSHOOT": "POVershoot",
+            "NOVERSHOOT": "NOVershoot",
+            "PHASE": "PHAse",
+        }
+        measurement = aliases.get(measurement, measurement)
+        if measurement.upper() not in {item.upper() for item in VALID_MEASUREMENTS}:
             allowed = ", ".join(sorted(VALID_MEASUREMENTS))
             raise ValueError(f"Unsupported measurement. Choose one of: {allowed}")
         self.backend.write(f"MEASUrement:IMMed:SOUrce1 {channel}")
@@ -130,12 +201,19 @@ class DPO2012B:
         start: int = 1,
         stop: int | None = None,
         max_points: int = 5000,
+        encoding: str = "ASCII",
+        width: int = 1,
     ) -> dict[str, Any]:
         channel = normalize_channel(channel)
         if start < 1:
             raise ValueError("start must be at least 1")
         if not 10 <= max_points <= 10000:
             raise ValueError("max_points must be between 10 and 10000")
+        encoding = encoding.strip().upper()
+        if encoding not in WAVEFORM_ENCODINGS:
+            raise ValueError(f"encoding must be one of: {', '.join(sorted(WAVEFORM_ENCODINGS))}")
+        if width not in {1, 2}:
+            raise ValueError("width must be 1 or 2 bytes per waveform point")
 
         record_length = int(float(self.backend.query("HORizontal:RECOrdlength?")))
         requested_stop = min(stop or record_length, record_length)
@@ -143,8 +221,8 @@ class DPO2012B:
             raise ValueError("stop must not be smaller than start")
 
         self.backend.write(f"DATa:SOUrce {channel}")
-        self.backend.write("DATa:ENCdg ASCIi")
-        self.backend.write("DATa:WIDth 1")
+        self.backend.write(f"DATa:ENCdg {encoding}")
+        self.backend.write(f"DATa:WIDth {width}")
         self.backend.write(f"DATa:STARt {start}")
         self.backend.write(f"DATa:STOP {requested_stop}")
 
@@ -156,7 +234,15 @@ class DPO2012B:
         y_offset = float(self.backend.query("WFMOutpre:YOFf?"))
         x_unit = self.backend.query("WFMOutpre:XUNit?").strip('"')
         y_unit = self.backend.query("WFMOutpre:YUNit?").strip('"')
-        raw_values = self.backend.query_ascii_values("CURVe?")
+        if encoding == "ASCII":
+            raw_values = self.backend.query_ascii_values("CURVe?")
+        else:
+            payload = self._extract_ieee_block(self.backend.query_raw("CURVe?"))
+            if encoding == "FASTEST" and self._looks_ascii_curve(payload):
+                raw_values = self._parse_ascii_curve(payload)
+            else:
+                binary_encoding = "RIBINARY" if encoding == "FASTEST" else encoding
+                raw_values = self._decode_binary_waveform(payload, binary_encoding, width)
 
         original_point_count = len(raw_values)
         source_indices = list(range(original_point_count))
@@ -183,9 +269,62 @@ class DPO2012B:
             "downsampled": original_point_count > len(values),
             "x_unit": x_unit,
             "y_unit": y_unit,
+            "encoding": encoding,
+            "width": width,
             "times": times,
             "values": values,
         }
+
+    @staticmethod
+    def _extract_ieee_block(payload: bytes) -> bytes:
+        payload = payload.rstrip(b"\r\n")
+        if not payload.startswith(b"#") or len(payload) < 2:
+            raise ScopeError("Expected an IEEE 488.2 waveform data block")
+        digits = int(payload[1:2])
+        if digits == 0:
+            return payload[2:]
+        length_start = 2
+        length_end = length_start + digits
+        if len(payload) < length_end:
+            raise ScopeError("Incomplete IEEE 488.2 waveform data block header")
+        data_length = int(payload[length_start:length_end])
+        data_start = length_end
+        data_end = data_start + data_length
+        if len(payload) < data_end:
+            raise ScopeError("Incomplete IEEE 488.2 waveform data block")
+        return payload[data_start:data_end]
+
+    @staticmethod
+    def _decode_binary_waveform(payload: bytes, encoding: str, width: int) -> list[float]:
+        if len(payload) % width:
+            raise ScopeError("Waveform binary payload is not aligned to the requested width")
+        if encoding in {"RIBINARY", "SRIBINARY"}:
+            fmt = ">" if encoding == "RIBINARY" else "<"
+            kind = "b" if width == 1 else "h"
+        elif encoding in {"RPBINARY", "SRPBINARY"}:
+            fmt = ">" if encoding == "RPBINARY" else "<"
+            kind = "B" if width == 1 else "H"
+        else:
+            raise ValueError(f"unsupported binary encoding: {encoding}")
+        size = struct.calcsize(kind)
+        usable = payload[: len(payload) // size * size]
+        return [float(item[0]) for item in struct.iter_unpack(fmt + kind, usable)]
+
+    @staticmethod
+    def _looks_ascii_curve(payload: bytes) -> bool:
+        try:
+            text = payload.decode("ascii").strip()
+        except UnicodeDecodeError:
+            return False
+        return bool(text) and all(char in "0123456789+-.eE, \t" for char in text)
+
+    @staticmethod
+    def _parse_ascii_curve(payload: bytes) -> list[float]:
+        try:
+            text = payload.decode("ascii").replace(";", ",")
+            return [float(item) for item in text.split(",") if item.strip()]
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ScopeError("Unable to parse Tektronix ASCII waveform data") from exc
 
     def query(self, command: str) -> str:
         command = validate_scpi(command)

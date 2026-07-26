@@ -32,6 +32,10 @@ class FakeBackend:
         assert command == "CURVe?"
         return [1.0, 3.0, -1.0]
 
+    def query_raw(self, command: str) -> bytes:
+        assert command == "CURVe?"
+        return b"#14\x01\x02\xFE\xFF\n"
+
 
 def test_channel_normalization() -> None:
     assert normalize_channel("channel1") == "CH1"
@@ -67,6 +71,19 @@ def test_measurement() -> None:
     assert result["value"] == 1000
     assert result["unit"] == "Hz"
     assert result["valid"] is True
+
+
+def test_binary_waveform_scaling() -> None:
+    backend = FakeBackend()
+    result = DPO2012B(backend).acquire_waveform("CH1", max_points=10, encoding="RIBINARY", width=1)
+    assert result["encoding"] == "RIBINARY"
+    assert result["values"] == pytest.approx([0.0, 0.5, -1.5, -1.0])
+
+
+def test_programming_guide_measurement_aliases_are_supported() -> None:
+    backend = FakeBackend()
+    result = DPO2012B(backend).immediate_measurement("CH1", "PK2PK")
+    assert result["measurement"] == "PK2Pk"
 
 
 def test_query_rejects_mixed_write_and_query_segments() -> None:

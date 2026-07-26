@@ -17,14 +17,15 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 
 | Vendor | Model | Interface | Status |
 | --- | --- | --- | --- |
-| Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
+| Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA, optional LAN VXI-11, TEK-USB-488/GPIB | USBTMC tested on real hardware; LAN/GPIB implemented but not hardware-tested |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested |
 
-The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
-instrument, not a serial COM-port device.
+The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
+documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.
+Only USBTMC is hardware-tested; LAN/GPIB remain untested.
 
 The AFG-2125 uses its rear Mini USB-B port but enumerates as a USB CDC virtual
 serial port (`AFG CDC Device (COMx)`) and is accessed as `ASRLx::INSTR`. It is
@@ -235,7 +236,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `dpo2012b_get_status`: read acquisition, trigger, and timebase status
 - `dpo2012b_get_channel_settings`: read CH1 or CH2 vertical settings
 - `dpo2012b_measure`: frequency, RMS, period, amplitude, and other measurements
-- `dpo2012b_acquire_waveform`: return up to 10,000 scaled waveform points
+- `dpo2012b_acquire_waveform`: return up to 10,000 scaled points using ASCII or IEEE 488.2 binary transfer
 - `dpo2012b_query_scpi`: issue a read-only DPO2012B SCPI query
 - `dpo2012b_write_scpi`: issue a setting command with safety protection
 
