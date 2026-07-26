@@ -16,7 +16,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 
 | 厂商 | 型号 | 通信接口 | 验证状态 |
 | --- | --- | --- | --- |
-| Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA、可选 LAN VXI-11、TEK-USB-488/GPIB | USBTMC 已通过真实设备验证；LAN/GPIB 已实现但未实机验证 |
+| Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA、可选 LAN VXI-11、TEK-USB-488/GPIB | USBTMC 双通道测量、全部波形编码、二进制查询及 PNG/BMP/TIFF 截图已实机验证；LAN/GPIB 未实机验证 |
 | GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
@@ -307,7 +307,10 @@ CH1 的 SYNC 信号验证实际频率范围，测试后恢复原来的输出状�
 如确有需要，必须同时设置服务端环境变量 `DPO2012B_ALLOW_UNSAFE=1`，并在
 调用工具时传入 `confirm_unsafe=true`。标准安装方式不会启用危险命令。
 DPO2012B 编程手册中的适用文本 SCPI 命令均可通过 `dpo2012b_command` 访问；
-二进制波形、截图和其他 IEEE 488.2 block 响应通过专用 Base64 工具返回。
+二进制波形、截图和其他二进制响应通过专用 Base64 工具返回。2026-07-26 的 USBTMC
+实机复验通过 47/47 项，覆盖 SDG1062X 双通道闭环、全部 MCP 即时测量类型、ASCII 和
+五种二进制波形编码的 1/2 字节读取、通用二进制查询及 PNG/BMP/TIFF 截图。固件 v1.52
+的截图为裸图像字节，驱动同时兼容裸图像和 IEEE 488.2 块响应。
 
 AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使用该指令；
 `afg2125_set_output(enabled=true)` 还必须传入 `confirm_enable=true`。原始高风险

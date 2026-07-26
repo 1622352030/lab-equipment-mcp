@@ -140,6 +140,33 @@ def test_screenshot_sets_and_restores_format() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("image_format", "payload"),
+    [
+        ("PNG", b"\x89PNG\r\n\x1a\nDATA"),
+        ("BMP", b"BMDATA"),
+        ("TIFF", b"MM\x00*DATA"),
+    ],
+)
+def test_screenshot_accepts_raw_image_returned_by_real_firmware(
+    image_format: str, payload: bytes
+) -> None:
+    import base64
+
+    class ScreenshotBackend(FakeBackend):
+        def query(self, command: str) -> str:
+            if command == "SAVe:IMAGe:FILEFormat?":
+                return "PNG"
+            return super().query(command)
+
+        def query_raw(self, command: str) -> bytes:
+            assert command == "HARDCopy START"
+            return payload
+
+    result = DPO2012B(ScreenshotBackend()).capture_screenshot(image_format)
+    assert base64.b64decode(result["data"]) == payload
+
+
 def test_query_rejects_mixed_write_and_query_segments() -> None:
     backend = FakeBackend()
     with pytest.raises(ValueError, match="Every SCPI segment"):

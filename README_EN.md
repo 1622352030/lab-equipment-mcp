@@ -17,7 +17,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 
 | Vendor | Model | Interface | Status |
 | --- | --- | --- | --- |
-| Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA, optional LAN VXI-11, TEK-USB-488/GPIB | USBTMC tested on real hardware; LAN/GPIB implemented but not hardware-tested |
+| Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA, optional LAN VXI-11, TEK-USB-488/GPIB | USBTMC two-channel measurements, all waveform encodings, binary query, and PNG/BMP/TIFF screenshots hardware-tested; LAN/GPIB untested |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
@@ -256,8 +256,12 @@ by default. Enabling DPO2012B unsafe commands requires both the server environme
 variable `DPO2012B_ALLOW_UNSAFE=1` and `confirm_unsafe=true`. The standard
 installation does not enable unsafe commands.
 Applicable text SCPI commands from the DPO2012B programming manual are available through
-`dpo2012b_command`; binary waveform, screenshot, and other IEEE 488.2 block responses are returned
-through the dedicated Base64 tools.
+`dpo2012b_command`; binary waveform, screenshot, and other binary responses are returned through
+the dedicated Base64 tools. The 2026-07-26 USBTMC run passed 47/47 checks, covering the SDG1062X
+two-channel closed loop, every exposed immediate-measurement type, ASCII and all five binary
+waveform encodings at widths 1/2, a generic binary query, and PNG/BMP/TIFF screenshots. Firmware
+v1.52 returns raw image bytes for screenshots; the driver accepts both raw images and IEEE 488.2
+block responses.
 
 ## AFG-2125 Tools
 

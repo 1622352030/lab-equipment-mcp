@@ -374,13 +374,28 @@ class DPO2012B:
             data = self.backend.query_raw("HARDCopy START")
         finally:
             self.backend.write(f"SAVe:IMAGe:FILEFormat {previous}")
-        payload = self._extract_ieee_block(data)
+        payload = self._extract_screenshot_payload(data, image_format)
         return {
             "format": image_format,
             "byte_count": len(payload),
             "encoding": "base64",
             "data": base64.b64encode(payload).decode("ascii"),
         }
+
+    @classmethod
+    def _extract_screenshot_payload(cls, data: bytes, image_format: str) -> bytes:
+        if data.startswith(b"#"):
+            return cls._extract_ieee_block(data)
+
+        signatures = {
+            "PNG": (b"\x89PNG\r\n\x1a\n",),
+            "BMP": (b"BM",),
+            "TIF": (b"II*\x00", b"MM\x00*"),
+            "TIFF": (b"II*\x00", b"MM\x00*"),
+        }
+        if any(data.startswith(signature) for signature in signatures[image_format]):
+            return data
+        raise ScopeError(f"DPO2012B returned invalid {image_format} screenshot data")
 
     def write(self, command: str, *, allow_unsafe: bool = False) -> None:
         command = validate_scpi(command, allow_unsafe=allow_unsafe)
