@@ -216,3 +216,12 @@ class VisaBackend:
                 return list(self.instrument().query_ascii_values(command))
             except Exception as exc:
                 raise ScopeError(f"SCPI waveform query failed: {exc}") from exc
+
+    def query_raw(self, command: str) -> bytes:
+        with self._lock:
+            try:
+                instrument = self.instrument()
+                instrument.write(command)
+                return bytes(instrument.read_raw())
+            except Exception as exc:
+                raise ScopeError(f"SCPI binary query failed: {exc}") from exc

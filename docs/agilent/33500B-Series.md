@@ -9,6 +9,8 @@ development evidence and is not redistributed by this repository.
 
 Real-hardware acceptance uses an Agilent 33509B with firmware
 `2.09-1.19-2.00-52-00`. Serial numbers are intentionally omitted from repository documentation.
+All VISA examples use placeholders; do not copy a live resource string or `*IDN?` response
+containing a serial number into an issue, log, or guide.
 The tested device is a single-channel, 20 MHz model. `*OPT?` reports no installed options, so this
 specific instrument has no arbitrary-waveform, extended-memory, OCXO, security, or IQ option.
 
@@ -83,7 +85,9 @@ enabling output.
 ## Hardware Acceptance
 
 The USBTMC path is accepted after Windows/VISA identity, representative reads, protected state
-changes, and DPO2012B closed-loop measurements. Acceptance uses MAIN/Output to DPO2012B CH2 and
+changes, and receiver-scope closed-loop measurements. The original acceptance used DPO2012B CH2;
+the Agilent/Keysight DSO-X 2012A is also available in this repository as a two-channel receiver
+for future 33500B tests. Acceptance uses MAIN/Output to DPO2012B CH2 and
 Sync to CH1. Tests save the original instrument states, begin output-off at low voltage, and restore
 the original output-off state in a `finally` path.
 

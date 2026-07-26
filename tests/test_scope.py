@@ -4,7 +4,7 @@ from lab_equipment_mcp.devices.tektronix.dpo2012b import DPO2012B, normalize_cha
 
 
 class FakeBackend:
-    resource_name = "USB0::0x0699::0x039D::C010423::INSTR"
+    resource_name = "USB0::0x0699::0x039D::SERIAL::INSTR"
 
     def __init__(self) -> None:
         self.writes: list[str] = []
