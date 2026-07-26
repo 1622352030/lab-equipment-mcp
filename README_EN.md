@@ -20,7 +20,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Tektronix | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | Tested on real hardware |
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
-| Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity and representative read-only commands hardware-tested; complete guide SCPI/binary entry points implemented |
+| Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested |
 
 The DPO2012B uses its rear USB Type-B device port. It is a USBTMC/VISA
@@ -42,6 +42,7 @@ src/lab_equipment_mcp/
 |   |-- agilent/
 |       |-- diagnostics.py       # 33500B Windows USB/VISA diagnostics
 |       `-- series_33500b.py     # Interfaces, options, functions, and safety
+|       `-- dsox2012a.py         # DSO-X 2012A SCPI, measurements, and waveform transfer
 |   |-- siglent/
 |       |-- diagnostics.py       # SDG Windows USB/VISA diagnostics
 |       `-- sdg_1000x.py         # SDG1062X dual-channel, modes, ARB, and safety
@@ -103,6 +104,8 @@ Device driver requirements:
   show `AFG CDC Device (COMx)`, exposed to VISA as `ASRLx::INSTR`.
 - 33500B Series: Keysight IO Libraries Suite or another VISA runtime with USBTMC,
   VXI-11/socket, or GPIB support. USB uses the rear Type-B device port.
+- DSO-X 2012A: Keysight IO Libraries Suite or NI-VISA Runtime with USBTMC support.
+  Optional LAN VXI-11 and GPIB require the corresponding DSOXLAN/DSOXGPIB modules.
 - SDG1000X/SDG1062X: NI-VISA Runtime or another USBTMC-capable VISA runtime. The
   rear Type-B Device port is USBTMC; the Siglent IVI package is not required.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
@@ -117,6 +120,13 @@ after installing the driver. A working VISA resource resembles:
 ```text
 USB0::0x0699::0x039D::<serial-number>::INSTR
 ```
+
+### Privacy and redaction
+
+Repository documentation, test fixtures, and diagnostics must not contain real instrument serial
+numbers, USB instance IDs, IP addresses, or complete unredacted `*IDN?` responses. VISA examples
+use `<serial-number>`; tests use `SERIAL` or `REDACTED`. Firmware, vendor IDs, and product IDs may
+be retained when they are not tied to a specific physical instrument.
 
 ## Install in Codex
 
@@ -325,9 +335,33 @@ Sync, channel copy, ARB selection, and binary ARB upload up to 16 kpts. It model
 LAN VXI-11, LAN socket 5025, and optional GPIB separately.
 
 USB identity, dual-channel waveforms, modulation, sweep, burst, and ARB are closed-loop
-tested with a DPO2012B. Sync/Aux, external modulation/triggering, LAN, and GPIB remain
+tested with a DPO2012B. A second acceptance run used the Agilent/Keysight DSO-X 2012A
+as a two-channel receiver: SDG CH1 1 kHz/0.5 Vpp measured 1000.0 Hz/0.52 Vpp, and
+SDG CH2 2 kHz/0.5 Vpp measured 2000.0 Hz/0.52 Vpp; receiver waveform samples measured
+0.518 Vpp and 0.515 Vpp. Sync/Aux, external modulation/triggering, LAN, and GPIB remain
 untested. See the
 [SDG1000X guide](docs/siglent/SDG1000X.md).
+
+## Agilent/Keysight DSO-X 2012A Tools
+
+The DSO-X 2012A driver uses the rear USB DEVICE Type-B port as USBTMC/VISA. It also
+declares optional LAN VXI-11 and GPIB interfaces for instruments fitted with DSOXLAN or
+DSOXGPIB modules. The programming-guide command tree is available through the complete
+`agilentdsox2012a_command` entry point, with separate binary-block Base64 tools for waveform,
+display, setup, and other documented binary transfers.
+
+- `agilentdsox2012a_connect`, `agilentdsox2012a_identify`, `agilentdsox2012a_disconnect`
+- `agilentdsox2012a_get_capabilities`, `agilentdsox2012a_get_status`
+- `agilentdsox2012a_get_channel_settings`, `agilentdsox2012a_measure`
+- `agilentdsox2012a_acquire_waveform`
+- `agilentdsox2012a_query_scpi`, `agilentdsox2012a_write_scpi`, and complete `agilentdsox2012a_command`
+- `agilentdsox2012a_query_binary`, `agilentdsox2012a_write_binary`
+
+USB identity, channel queries, measurement source, acquisition settings, waveform preamble,
+and the SDG1062X two-channel closed-loop receiver test are hardware-tested. The measured
+closed-loop result was CH1 1 kHz/0.5 Vpp -> 1000.0 Hz/0.52 Vpp and CH2 2 kHz/0.5 Vpp ->
+2000.0 Hz/0.52 Vpp. LAN, GPIB, MSO-only digital commands, and unlicensed options remain
+untested. Output-generating tests restore both generator outputs and scope state.
 
 ## Add Another Device
 

@@ -19,7 +19,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Tektronix（泰克） | [DPO2012B](docs/tektronix/DPO2012B.md) | USBTMC/VISA | 已通过真实设备验证 |
 | GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
-| Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 实机身份和代表性只读命令已验证；完整编程指南 SCPI/二进制入口已实现 |
+| Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 双通道波形、模式和 ARB 已完成示波器闭环验收 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口。该接口采用 USBTMC/VISA
@@ -41,6 +41,7 @@ src/lab_equipment_mcp/
 |   |-- agilent/
 |       |-- diagnostics.py       # 33500B Windows USB/VISA 环境诊断
 |       `-- series_33500b.py     # 接口、选件、功能和安全控制
+|       `-- dsox2012a.py         # DSO-X 2012A SCPI、测量和波形传输
 |   |-- tektronix/
 |       |-- diagnostics.py       # Windows USB/VISA 环境诊断
 |       `-- dpo2012b.py          # DPO2012B 识别、测量和波形读取
@@ -100,6 +101,8 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
   `AFG CDC Device (COMx)`，VISA 地址为 `ASRLx::INSTR`。
 - 33500B 系列：Keysight IO Libraries Suite 或其他支持 USBTMC、VXI-11/Socket、
   GPIB 的 VISA Runtime；USB 使用后部 Type-B 设备端口。
+- DSO-X 2012A：Keysight IO Libraries Suite 或支持 USBTMC 的 NI-VISA Runtime；可选
+  LAN VXI-11/GPIB 需要对应的 DSOXLAN/DSOXGPIB 模块。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
@@ -111,6 +114,12 @@ NI-VISA 15.0 Runtime 下载链接、安装日期记录和故障排查方法。�
 ```text
 USB0::0x0699::0x039D::<设备序列号>::INSTR
 ```
+
+### 隐私与脱敏
+
+仓库文档、测试夹具和诊断输出不得记录真实设备序列号、USB 实例 ID、IP 地址或完整未脱敏
+的 `*IDN?` 响应。VISA 地址中的序列号统一使用 `<设备序列号>`，测试代码使用 `SERIAL`
+或 `REDACTED` 占位符；固件版本、厂商 ID 和产品 ID 可在不关联具体设备时保留。
 
 ## 安装到 Codex
 
@@ -363,7 +372,10 @@ PWM/FSK/BPSK/SUM、Sweep、Burst、受保护触发，以及手册其余远程功
 
 SDG1000X 系列驱动支持 SDG1032X 和双通道 SDG1062X。USB Type-B 实际通信方式为
 USBTMC/VISA，不是串口；LAN VXI-11、LAN SCPI Socket 5025 和选配 GPIB 也作为独立
-接口建模。当前 SDG1062X 已通过 DPO2012B 双通道物理闭环验收。
+接口建模。SDG1062X 已通过 DPO2012B 双通道物理闭环验收，并使用 Agilent/Keysight
+DSO-X 2012A 作为第二台双通道接收示波器完成闭环：CH1 设为 1 kHz/0.5 Vpp，实测
+1000.0 Hz/0.52 Vpp；CH2 设为 2 kHz/0.5 Vpp，实测 2000.0 Hz/0.52 Vpp；接收波形
+样本 Vpp 分别为 0.518 V 和 0.515 V。同步、外部调制/触发、LAN 和 GPIB 仍未实测。
 
 - `sdg1062x_diagnose_setup`：检查 Siglent USB 枚举、VISA Runtime、PyVISA 和可识别
   的 SDG1000X 资源
@@ -415,6 +427,25 @@ SDG1062X 的两个通道共享同一个 VISA 仪器连接，但每个通道的�
 将 SDG1062X CH1 配置为 1 kHz 到 5 kHz、1 秒线性扫频，并使用 DPO2012B CH1
 进行物理闭环验收；测试后关闭输出并恢复原设置。
 ```
+
+## Agilent/Keysight DSO-X 2012A 工具
+
+DSO-X 2012A 使用后部 USB DEVICE Type-B 端口进行 USBTMC/VISA 通信，并声明可选
+LAN VXI-11 和 GPIB 接口。编程指南中的完整 SCPI 命令树通过
+`agilentdsox2012a_command` 提供；波形、显示、设置等 IEEE 488.2 二进制块通过
+Base64 工具传输。
+
+- `agilentdsox2012a_connect`、`agilentdsox2012a_identify`、`agilentdsox2012a_disconnect`
+- `agilentdsox2012a_get_capabilities`、`agilentdsox2012a_get_status`
+- `agilentdsox2012a_get_channel_settings`、`agilentdsox2012a_measure`
+- `agilentdsox2012a_acquire_waveform`
+- `agilentdsox2012a_query_scpi`、`agilentdsox2012a_write_scpi`、完整 `agilentdsox2012a_command`
+- `agilentdsox2012a_query_binary`、`agilentdsox2012a_write_binary`
+
+DSO-X 2012A 已完成 USB 身份、通道查询、采集设置、测量源、波形前导码和 SDG1062X
+双通道接收闭环实测。闭环结果为 CH1 1 kHz/0.5 Vpp -> 1000.0 Hz/0.52 Vpp，CH2
+2 kHz/0.5 Vpp -> 2000.0 Hz/0.52 Vpp。LAN、GPIB、MSO 数字通道和未安装选件仍未实测。
+所有输出测试均在结束时关闭信号源并恢复示波器状态。
 
 ## 增加其他设备
 

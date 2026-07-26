@@ -13,7 +13,7 @@ def test_dpo_detection_by_identity() -> None:
             "USB0::x::INSTR",
             "USB0",
             InterfaceType.USBTMC,
-            idn="TEKTRONIX,DPO2012B,C010423,1.0",
+            idn="TEKTRONIX,DPO2012B,SERIAL,1.0",
         ),
         VisaResource(
             "USB0::y::INSTR", "USB0", InterfaceType.USBTMC, idn="OTHER,DEVICE,1,1"
@@ -38,7 +38,7 @@ def test_serial_resources_are_not_probed() -> None:
                 write_termination = None
 
                 def query(self, command: str) -> str:
-                    return "TEKTRONIX,DPO2012B,C010423,1.0"
+                    return "TEKTRONIX,DPO2012B,SERIAL,1.0"
 
                 def close(self) -> None:
                     pass
