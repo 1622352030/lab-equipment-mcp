@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 
 from .core.transports.visa import VisaBackend
 from .devices.agilent.diagnostics import diagnose_host as diagnose_agilent33500b_host
+from .devices.agilent.dsox2012a import AgilentDSOX2012A
 from .devices.agilent.series_33500b import Agilent33500B
 from .devices.catalog import list_device_profiles
 from .devices.gw_instek.afg_2125 import AFG2125
@@ -22,10 +23,12 @@ discovery_backend = VisaBackend()
 dpo2012b_backend = VisaBackend()
 afg2125_backend = VisaBackend()
 agilent33500b_backend = VisaBackend()
+agilentdsox2012a_backend = VisaBackend()
 sdg1062x_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
 agilent33500b = Agilent33500B(agilent33500b_backend)
+agilentdsox2012a = AgilentDSOX2012A(agilentdsox2012a_backend)
 sdg1062x = SDG1000X(sdg1062x_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
@@ -73,6 +76,127 @@ def agilent33500b_diagnose_setup() -> dict[str, Any]:
     return diagnose_agilent33500b_host(discovery_backend)
 
 
+@mcp.tool(name="agilentdsox2012a_connect", annotations=STATE_CHANGE)
+def agilentdsox2012a_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
+    """Connect to an Agilent/Keysight DSO-X 2012A over USBTMC, optional LAN, or GPIB."""
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = agilentdsox2012a.connect(resource, timeout_ms)
+    return {
+        "resource": agilentdsox2012a_backend.resource_name or "",
+        "interface_type": agilentdsox2012a_backend.interface_type.value
+        if agilentdsox2012a_backend.interface_type
+        else "unknown",
+        "identity": identity,
+    }
+
+
+@mcp.tool(name="agilentdsox2012a_disconnect", annotations=STATE_CHANGE)
+def agilentdsox2012a_disconnect() -> str:
+    """Close the DSO-X 2012A VISA session."""
+    agilentdsox2012a_backend.disconnect()
+    return "DSO-X 2012A disconnected"
+
+
+@mcp.tool(name="agilentdsox2012a_identify", annotations=READ_ONLY)
+def agilentdsox2012a_identify() -> dict[str, str]:
+    """Return the connected DSO-X 2012A identity."""
+    return {
+        "resource": agilentdsox2012a_backend.resource_name or "",
+        "identity": agilentdsox2012a_backend.query("*IDN?"),
+    }
+
+
+@mcp.tool(name="agilentdsox2012a_get_status", annotations=READ_ONLY)
+def agilentdsox2012a_get_status() -> dict[str, str]:
+    """Read acquisition, trigger, timebase, and system-error status."""
+    return agilentdsox2012a.get_status()
+
+
+@mcp.tool(name="agilentdsox2012a_get_capabilities", annotations=READ_ONLY)
+def agilentdsox2012a_get_capabilities() -> dict[str, Any]:
+    """Read model, firmware, options, channel count, and declared interfaces."""
+    return agilentdsox2012a.capabilities()
+
+
+@mcp.tool(name="agilentdsox2012a_get_channel_settings", annotations=READ_ONLY)
+def agilentdsox2012a_get_channel_settings(channel: str = "CH1") -> dict[str, Any]:
+    """Read vertical settings for CH1 or CH2."""
+    return agilentdsox2012a.channel_settings(channel)
+
+
+@mcp.tool(name="agilentdsox2012a_measure", annotations=STATE_CHANGE)
+def agilentdsox2012a_measure(
+    channel: str = "CH1", measurement: str = "FREQUENCY"
+) -> dict[str, Any]:
+    """Read an immediate measurement from CH1 or CH2."""
+    return agilentdsox2012a.measure(channel, measurement)
+
+
+@mcp.tool(name="agilentdsox2012a_acquire_waveform", annotations=STATE_CHANGE)
+def agilentdsox2012a_acquire_waveform(
+    channel: str = "CH1", max_points: int = 5000
+) -> dict[str, Any]:
+    """Acquire scaled waveform points from CH1 or CH2 using ASCII transfer."""
+    return agilentdsox2012a.acquire_waveform(channel, max_points)
+
+
+@mcp.tool(name="agilentdsox2012a_query_scpi", annotations=READ_ONLY)
+def agilentdsox2012a_query_scpi(command: str) -> dict[str, str]:
+    """Send a read-only DSO-X 2012A SCPI query."""
+    return {"command": command, "response": agilentdsox2012a.query(command)}
+
+
+@mcp.tool(name="agilentdsox2012a_write_scpi", annotations=STATE_CHANGE)
+def agilentdsox2012a_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
+    """Send a protected DSO-X setting command; unsafe commands require an environment opt-in."""
+    unsafe_enabled = os.getenv("AGILENTDSOX2012A_ALLOW_UNSAFE", "").lower() in {"1", "true", "yes"}
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled. Set AGILENTDSOX2012A_ALLOW_UNSAFE=1 and "
+            "pass confirm_unsafe=true."
+        )
+    agilentdsox2012a.write(command, allow_unsafe=confirm_unsafe and unsafe_enabled)
+    return "Command sent"
+
+
+@mcp.tool(name="agilentdsox2012a_command", annotations=STATE_CHANGE)
+def agilentdsox2012a_command(
+    command: str, query: bool = True, confirm_unsafe: bool = False
+) -> dict[str, str]:
+    """Execute any SCPI command documented for the 2000 X-Series DSO-X 2012A.
+
+    Use query=true for read-only queries (including semicolon-separated queries). Writes are
+    protected by the same unsafe-command policy as agilentdsox2012a_write_scpi.
+    """
+    unsafe_enabled = os.getenv("AGILENTDSOX2012A_ALLOW_UNSAFE", "").lower() in {"1", "true", "yes"}
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled. Set AGILENTDSOX2012A_ALLOW_UNSAFE=1 and "
+            "pass confirm_unsafe=true."
+        )
+    response = agilentdsox2012a.command(
+        command, query=query, allow_unsafe=confirm_unsafe and unsafe_enabled
+    )
+    return {"command": command, "query": str(query).lower(), "response": response}
+
+
+@mcp.tool(name="agilentdsox2012a_query_binary", annotations=READ_ONLY)
+def agilentdsox2012a_query_binary(command: str) -> dict[str, Any]:
+    """Run a documented binary-block query and return its bytes as Base64."""
+    return agilentdsox2012a.query_binary(command)
+
+
+@mcp.tool(name="agilentdsox2012a_write_binary", annotations=STATE_CHANGE)
+def agilentdsox2012a_write_binary(
+    command_prefix: str, data_base64: str, confirm_binary_write: bool = False
+) -> dict[str, int]:
+    """Send a documented IEEE-488.2 definite-length binary block after confirmation."""
+    if not confirm_binary_write:
+        raise ValueError("Binary writes require confirm_binary_write=true")
+    return {"bytes_written": agilentdsox2012a.write_binary(command_prefix, data_base64)}
+
+
 @mcp.tool(name="sdg1062x_diagnose_setup", annotations=READ_ONLY)
 def sdg1062x_diagnose_setup() -> dict[str, Any]:
     """Check Siglent SDG USB enumeration, VISA resources, and PyVISA readiness."""
@@ -82,9 +206,7 @@ def sdg1062x_diagnose_setup() -> dict[str, Any]:
 @mcp.tool(annotations=READ_ONLY)
 def list_visa_instruments(probe_identity: bool = True) -> list[dict[str, Any]]:
     """List VISA resources and optionally query each instrument identity."""
-    return [
-        item.__dict__ for item in discovery_backend.list_resources(probe=probe_identity)
-    ]
+    return [item.__dict__ for item in discovery_backend.list_resources(probe=probe_identity)]
 
 
 @mcp.tool(name="dpo2012b_connect", annotations=STATE_CHANGE)
@@ -96,9 +218,7 @@ def dpo2012b_connect(resource: str | None = None, timeout_ms: int = 5000) -> dic
     return {
         "resource": dpo2012b_backend.resource_name or "",
         "interface_type": (
-            dpo2012b_backend.interface_type.value
-            if dpo2012b_backend.interface_type
-            else "unknown"
+            dpo2012b_backend.interface_type.value if dpo2012b_backend.interface_type else "unknown"
         ),
         "identity": identity,
     }
@@ -113,18 +233,14 @@ def afg2125_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict
     return {
         "resource": afg2125_backend.resource_name or "",
         "interface_type": (
-            afg2125_backend.interface_type.value
-            if afg2125_backend.interface_type
-            else "unknown"
+            afg2125_backend.interface_type.value if afg2125_backend.interface_type else "unknown"
         ),
         "identity": identity,
     }
 
 
 @mcp.tool(name="agilent33500b_connect", annotations=STATE_CHANGE)
-def agilent33500b_connect(
-    resource: str | None = None, timeout_ms: int = 5000
-) -> dict[str, str]:
+def agilent33500b_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
     """Connect to an Agilent/Keysight 33500 Series generator over VISA."""
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
@@ -149,9 +265,7 @@ def sdg1062x_connect(resource: str | None = None, timeout_ms: int = 5000) -> dic
     return {
         "resource": sdg1062x_backend.resource_name or "",
         "interface_type": (
-            sdg1062x_backend.interface_type.value
-            if sdg1062x_backend.interface_type
-            else "unknown"
+            sdg1062x_backend.interface_type.value if sdg1062x_backend.interface_type else "unknown"
         ),
         "identity": identity,
     }
@@ -164,6 +278,7 @@ def disconnect_instrument() -> str:
     afg2125_backend.disconnect()
     agilent33500b_backend.disconnect()
     sdg1062x_backend.disconnect()
+    agilentdsox2012a_backend.disconnect()
     discovery_backend.disconnect()
     return "Disconnected all instruments"
 
@@ -207,6 +322,7 @@ def identify_instrument() -> dict[str, str]:
         ("AFG-2125", afg2125_backend),
         ("33500B Series", agilent33500b_backend),
         ("SDG1000X Series", sdg1062x_backend),
+        ("DSO-X 2012A", agilentdsox2012a_backend),
     ]
     connected = [(name, item) for name, item in connected if item.resource_name]
     if not connected:
@@ -281,9 +397,7 @@ def sdg1062x_set_output(
 
 
 @mcp.tool(name="sdg1062x_set_output_load", annotations=STATE_CHANGE)
-def sdg1062x_set_output_load(
-    channel: int, load_ohms: float | None = None
-) -> dict[str, Any]:
+def sdg1062x_set_output_load(channel: int, load_ohms: float | None = None) -> dict[str, Any]:
     """Set expected output load, or null for high impedance, while output is disabled."""
     return sdg1062x.set_output_load(channel, load_ohms)
 
@@ -303,9 +417,7 @@ def sdg1062x_set_waveform(
     offset_volts: float | None = None,
 ) -> dict[str, Any]:
     """Configure a channel waveform with output disabled and SCPI read-back."""
-    return sdg1062x.set_waveform(
-        channel, function, frequency_hz, amplitude_vpp, offset_volts
-    )
+    return sdg1062x.set_waveform(channel, function, frequency_hz, amplitude_vpp, offset_volts)
 
 
 @mcp.tool(name="sdg1062x_set_waveform_detail", annotations=STATE_CHANGE)
@@ -411,9 +523,7 @@ def sdg1062x_trigger(channel: int, mode: str, confirm_trigger: bool = False) -> 
 
 
 @mcp.tool(name="sdg1062x_configure_sync", annotations=STATE_CHANGE)
-def sdg1062x_configure_sync(
-    enabled: bool, source_channel: int = 1
-) -> dict[str, Any]:
+def sdg1062x_configure_sync(enabled: bool, source_channel: int = 1) -> dict[str, Any]:
     """Configure the rear Aux In/Out CMOS Sync output and source channel."""
     return sdg1062x.configure_sync(enabled, source_channel)
 
@@ -497,15 +607,11 @@ def agilent33500b_set_waveform(
     offset_volts: float | None = None,
 ) -> dict[str, Any]:
     """Configure a standard waveform while the channel output is disabled."""
-    return agilent33500b.set_waveform(
-        function, frequency_hz, amplitude_vpp, offset_volts
-    )
+    return agilent33500b.set_waveform(function, frequency_hz, amplitude_vpp, offset_volts)
 
 
 @mcp.tool(name="agilent33500b_set_output", annotations=STATE_CHANGE)
-def agilent33500b_set_output(
-    enabled: bool, confirm_enable: bool = False
-) -> dict[str, Any]:
+def agilent33500b_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str, Any]:
     """Disable output freely or enable it after explicit cabling and load confirmation."""
     state = agilent33500b.set_output(enabled, confirm_enable=confirm_enable)
     return {"requested_enabled": state, "verified_by_readback": True}
@@ -539,9 +645,7 @@ def agilent33500b_configure_pulse(
     trailing_s: float | None = None,
 ) -> dict[str, Any]:
     """Configure pulse period, width or duty, and edge transition times."""
-    return agilent33500b.configure_pulse(
-        period_s, width_s, duty_percent, leading_s, trailing_s
-    )
+    return agilent33500b.configure_pulse(period_s, width_s, duty_percent, leading_s, trailing_s)
 
 
 @mcp.tool(name="agilent33500b_configure_sync", annotations=STATE_CHANGE)
@@ -661,9 +765,7 @@ def afg2125_set_function(function: str) -> dict[str, str]:
 
 
 @mcp.tool(name="afg2125_set_frequency", annotations=STATE_CHANGE)
-def afg2125_set_frequency(
-    frequency_hz: float, function: str | None = None
-) -> dict[str, Any]:
+def afg2125_set_frequency(frequency_hz: float, function: str | None = None) -> dict[str, Any]:
     """Set frequency within the AFG-2125 limit for the selected or supplied function."""
     return {"frequency_hz": afg2125.set_frequency(frequency_hz, function)}
 
@@ -787,9 +889,7 @@ def afg2125_set_sweep_enabled(enabled: bool) -> dict[str, bool]:
 
 
 @mcp.tool(name="afg2125_upload_arbitrary_waveform", annotations=STATE_CHANGE)
-def afg2125_upload_arbitrary_waveform(
-    values: list[int], start: int = 0
-) -> dict[str, int]:
+def afg2125_upload_arbitrary_waveform(values: list[int], start: int = 0) -> dict[str, int]:
     """Upload 2-4096 integer ARB points (-511..511) without selecting it or enabling output."""
     return afg2125.upload_arbitrary_waveform(values, start)
 
@@ -908,6 +1008,7 @@ atexit.register(dpo2012b_backend.disconnect)
 atexit.register(afg2125_backend.disconnect)
 atexit.register(agilent33500b_backend.disconnect)
 atexit.register(sdg1062x_backend.disconnect)
+atexit.register(agilentdsox2012a_backend.disconnect)
 
 
 if __name__ == "__main__":
