@@ -86,6 +86,60 @@ def test_programming_guide_measurement_aliases_are_supported() -> None:
     assert result["measurement"] == "PK2Pk"
 
 
+def test_binary_query_returns_base64() -> None:
+    import base64
+
+    class BinaryBackend(FakeBackend):
+        def query_raw(self, command: str) -> bytes:
+            assert command == "WFMOutpre?"
+            return b"#15hello\n"
+
+    backend = BinaryBackend()
+    result = DPO2012B(backend).query_binary("WFMOutpre?")
+    assert result["encoding"] == "base64"
+    assert base64.b64decode(result["data"]).startswith(b"#")
+
+
+def test_complete_scpi_entrypoint_rejects_query_write_mismatch() -> None:
+    scope = DPO2012B(FakeBackend())
+    with pytest.raises(ValueError, match="query=true"):
+        scope.command("CH1:SCAle 1", query=True)
+    with pytest.raises(ValueError, match="query=false"):
+        scope.command("CH1:SCAle?", query=False)
+
+
+def test_complete_scpi_entrypoint_writes_and_queries() -> None:
+    backend = FakeBackend()
+    scope = DPO2012B(backend)
+    assert scope.command("MEASUrement:IMMed:VALue?", query=True) == "1000"
+    assert scope.command("CH1:SCAle 1", query=False) == "Command sent"
+    assert backend.writes[-1] == "CH1:SCAle 1"
+
+
+def test_screenshot_sets_and_restores_format() -> None:
+    import base64
+
+    class ScreenshotBackend(FakeBackend):
+        def query(self, command: str) -> str:
+            if command == "SAVe:IMAGe:FILEFormat?":
+                return "BMP"
+            return super().query(command)
+
+        def query_raw(self, command: str) -> bytes:
+            assert command == "HARDCopy START"
+            return b"#17PNGDATA\n"
+
+    backend = ScreenshotBackend()
+    result = DPO2012B(backend).capture_screenshot("PNG")
+    assert result["format"] == "PNG"
+    assert result["byte_count"] == 7
+    assert base64.b64decode(result["data"]) == b"PNGDATA"
+    assert backend.writes == [
+        "SAVe:IMAGe:FILEFormat PNG",
+        "SAVe:IMAGe:FILEFormat BMP",
+    ]
+
+
 def test_query_rejects_mixed_write_and_query_segments() -> None:
     backend = FakeBackend()
     with pytest.raises(ValueError, match="Every SCPI segment"):

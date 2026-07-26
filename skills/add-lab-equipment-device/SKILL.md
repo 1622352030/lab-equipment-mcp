@@ -45,16 +45,21 @@ For recurring failure patterns from the AFG-2125 implementation, read
    operations by default unless the project explicitly defines a guarded workflow. For every
    state-changing command, verify the requested value by read-back when the instrument supports it;
    otherwise return an explicit unverified/firmware-quirk result rather than claiming success.
-10. Add the device guide under `docs/<vendor>/<MODEL>.md`. Document manuals used, supported
+10. Cover every command applicable to the target model that is documented in the programmer's
+    manual. Each command must have either a dedicated typed MCP tool or a model-prefixed complete
+    SCPI command/query entry point. Do not omit documented command groups merely because they were
+    not part of the initial hardware test; mark them as implemented-but-untested and preserve
+    manual-defined option/module conditions.
+11. Add the device guide under `docs/<vendor>/<MODEL>.md`. Document manuals used, supported
     interfaces, tested interfaces, cable/pin requirements, driver links with verification dates,
     installation, example prompts, and troubleshooting.
-11. Complete every applicable gate in [acceptance.md](references/acceptance.md). Do not claim an
+12. Complete every applicable gate in [acceptance.md](references/acceptance.md). Do not claim an
     interface is tested when it was only implemented or simulated. For waveform sources, prefer a
     physical receiver MCP (oscilloscope, counter, load, or analyzer) for closed-loop acceptance;
     if no usable receiver MCP is available, ask the user to observe the panel/connected instrument
     and record the observation as user-observed, not agent-measured. SCPI read-back alone remains
     lower-confidence. Restore the original safe state in a `finally` path.
-12. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
+13. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
     the owner's repository and open/prepare a pull request. Report untested interfaces and residual
     risks explicitly.
 

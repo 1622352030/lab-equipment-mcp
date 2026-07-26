@@ -238,6 +238,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `dpo2012b_measure`: frequency, RMS, period, amplitude, and other measurements
 - `dpo2012b_acquire_waveform`: return up to 10,000 scaled points using ASCII or IEEE 488.2 binary transfer
 - `dpo2012b_query_scpi`: issue a read-only DPO2012B SCPI query
+- `dpo2012b_command`: complete text SCPI entry point for applicable DPO2012B programming-manual commands not covered by typed tools
+- `dpo2012b_query_binary`: read a documented binary query and return Base64
+- `dpo2012b_capture_screenshot`: capture a PNG/BMP/TIFF screen image via `HARDCopy START` and return Base64
 - `dpo2012b_write_scpi`: issue a setting command with safety protection
 
 Example prompt:
@@ -252,6 +255,9 @@ Calibration, firmware, reset, recall/save, and file-deletion commands are blocke
 by default. Enabling DPO2012B unsafe commands requires both the server environment
 variable `DPO2012B_ALLOW_UNSAFE=1` and `confirm_unsafe=true`. The standard
 installation does not enable unsafe commands.
+Applicable text SCPI commands from the DPO2012B programming manual are available through
+`dpo2012b_command`; binary waveform, screenshot, and other IEEE 488.2 block responses are returned
+through the dedicated Base64 tools.
 
 ## AFG-2125 Tools
 

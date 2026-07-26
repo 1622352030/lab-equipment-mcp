@@ -985,6 +985,39 @@ def dpo2012b_query_scpi(command: str) -> dict[str, str]:
     return {"command": command, "response": dpo2012b.query(command)}
 
 
+@mcp.tool(name="dpo2012b_command", annotations=STATE_CHANGE)
+def dpo2012b_command(
+    command: str, query: bool = True, confirm_unsafe: bool = False
+) -> dict[str, str]:
+    """Execute any text SCPI command documented for the DPO2012B.
+
+    Use query=true for read-only queries. Writes are protected by the same unsafe-command
+    policy as dpo2012b_write_scpi.
+    """
+    unsafe_enabled = os.getenv("DPO2012B_ALLOW_UNSAFE", "").lower() in {"1", "true", "yes"}
+    if confirm_unsafe and not unsafe_enabled:
+        raise ValueError(
+            "Unsafe SCPI is disabled by the server. Set DPO2012B_ALLOW_UNSAFE=1 in the MCP "
+            "server environment and pass confirm_unsafe=true to enable it."
+        )
+    response = dpo2012b.command(
+        command, query=query, allow_unsafe=confirm_unsafe and unsafe_enabled
+    )
+    return {"command": command, "query": str(query).lower(), "response": response}
+
+
+@mcp.tool(name="dpo2012b_query_binary", annotations=READ_ONLY)
+def dpo2012b_query_binary(command: str) -> dict[str, Any]:
+    """Run a documented binary query and return the response as Base64."""
+    return dpo2012b.query_binary(command)
+
+
+@mcp.tool(name="dpo2012b_capture_screenshot", annotations=READ_ONLY)
+def dpo2012b_capture_screenshot(image_format: str = "PNG") -> dict[str, Any]:
+    """Capture the DPO2012B screen via HARDCopy START as Base64 image data."""
+    return dpo2012b.capture_screenshot(image_format)
+
+
 @mcp.tool(name="dpo2012b_write_scpi", annotations=STATE_CHANGE)
 def dpo2012b_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
     """Send a SCPI setting command; destructive commands require explicit confirmation."""

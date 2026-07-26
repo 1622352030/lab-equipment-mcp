@@ -234,6 +234,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex.ps1
 - `dpo2012b_measure`：测量频率、RMS、周期、幅值等参数
 - `dpo2012b_acquire_waveform`：按 ASCII 或 IEEE 488.2 二进制编码获取最多 10,000 个经过缩放的波形点
 - `dpo2012b_query_scpi`：发送只读 DPO2012B SCPI 查询
+- `dpo2012b_command`：完整 DPO2012B 编程手册文本 SCPI 入口，覆盖未做专用工具的适用命令
+- `dpo2012b_query_binary`：读取手册定义的二进制查询并以 Base64 返回
+- `dpo2012b_capture_screenshot`：通过 `HARDCopy START` 获取 PNG/BMP/TIFF 屏幕截图并以 Base64 返回
 - `dpo2012b_write_scpi`：发送带安全保护的设置命令
 
 示例提示词：
@@ -303,6 +306,8 @@ CH1 的 SYNC 信号验证实际频率范围，测试后恢复原来的输出状�
 校准、固件更新、复位、保存/恢复配置和文件删除等高风险命令默认被拦截。
 如确有需要，必须同时设置服务端环境变量 `DPO2012B_ALLOW_UNSAFE=1`，并在
 调用工具时传入 `confirm_unsafe=true`。标准安装方式不会启用危险命令。
+DPO2012B 编程手册中的适用文本 SCPI 命令均可通过 `dpo2012b_command` 访问；
+二进制波形、截图和其他 IEEE 488.2 block 响应通过专用 Base64 工具返回。
 
 AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使用该指令；
 `afg2125_set_output(enabled=true)` 还必须传入 `confirm_enable=true`。原始高风险

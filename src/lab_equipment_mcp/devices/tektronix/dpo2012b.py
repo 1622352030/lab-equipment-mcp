@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import math
 import struct
 from typing import Any
@@ -332,6 +333,54 @@ class DPO2012B:
         if not segments or any("?" not in segment for segment in segments):
             raise ValueError("Every SCPI segment passed to query_scpi must be a query")
         return self.backend.query(command)
+
+    def command(self, command: str, *, query: bool, allow_unsafe: bool = False) -> str:
+        """Execute any text SCPI command documented for the DPO2012B."""
+        command = validate_scpi(command, allow_unsafe=allow_unsafe)
+        if query:
+            segments = [segment.strip() for segment in command.split(";") if segment.strip()]
+            if not segments or any("?" not in segment for segment in segments):
+                raise ValueError("query=true requires every SCPI segment to be a query")
+            return self.backend.query(command)
+        if "?" in command:
+            raise ValueError("query=false does not accept queries")
+        self.backend.write(command)
+        return "Command sent"
+
+    def query_binary(self, command: str) -> dict[str, Any]:
+        """Execute a documented binary query and return its bytes as Base64."""
+        command = validate_scpi(command)
+        if "?" not in command:
+            raise ValueError("binary command must be a query")
+        data = self.backend.query_raw(command)
+        return {
+            "command": command,
+            "byte_count": len(data),
+            "encoding": "base64",
+            "data": base64.b64encode(data).decode("ascii"),
+        }
+
+    def capture_screenshot(self, image_format: str = "PNG") -> dict[str, Any]:
+        """Capture the current screen using HARDCopy START and return Base64 image data."""
+        image_format = image_format.strip().upper()
+        formats = {"PNG": "PNG", "BMP": "BMP", "TIF": "TIFf", "TIFF": "TIFf"}
+        try:
+            token = formats[image_format]
+        except KeyError as exc:
+            raise ValueError("image_format must be PNG, BMP, or TIFF") from exc
+        previous = self.backend.query("SAVe:IMAGe:FILEFormat?")
+        try:
+            self.backend.write(f"SAVe:IMAGe:FILEFormat {token}")
+            data = self.backend.query_raw("HARDCopy START")
+        finally:
+            self.backend.write(f"SAVe:IMAGe:FILEFormat {previous}")
+        payload = self._extract_ieee_block(data)
+        return {
+            "format": image_format,
+            "byte_count": len(payload),
+            "encoding": "base64",
+            "data": base64.b64encode(payload).decode("ascii"),
+        }
 
     def write(self, command: str, *, allow_unsafe: bool = False) -> None:
         command = validate_scpi(command, allow_unsafe=allow_unsafe)
