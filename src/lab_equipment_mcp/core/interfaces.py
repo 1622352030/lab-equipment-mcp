@@ -6,7 +6,9 @@ from enum import StrEnum
 
 class InterfaceType(StrEnum):
     USBTMC = "usbtmc"
+    TTL_SERIAL = "ttl-serial"
     RS232 = "rs232"
+    RS485 = "rs485"
     LAN_VXI11 = "lan-vxi11"
     LAN_SOCKET = "lan-socket"
     GPIB = "gpib"

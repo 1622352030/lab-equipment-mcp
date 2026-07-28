@@ -1,0 +1,1 @@
+"""Maynuo laboratory power supplies."""

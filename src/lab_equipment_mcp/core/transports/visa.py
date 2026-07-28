@@ -149,6 +149,7 @@ class VisaBackend:
         resource_name: str,
         timeout_ms: int = 5000,
         session_config: SessionConfig | None = None,
+        identity_command: str = "*IDN?",
     ) -> str:
         with self._lock:
             if self._instrument is not None:
@@ -157,7 +158,7 @@ class VisaBackend:
                 instrument = self._manager().open_resource(resource_name, open_timeout=timeout_ms)
                 instrument.timeout = timeout_ms
                 self._apply_session_config(instrument, session_config or SessionConfig())
-                identity = str(instrument.query("*IDN?")).strip()
+                identity = str(instrument.query(identity_command)).strip()
             except Exception as exc:
                 raise ScopeError(f"Unable to connect to {resource_name}: {exc}") from exc
 
