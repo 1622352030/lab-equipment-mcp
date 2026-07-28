@@ -21,7 +21,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 双通道波形、模式和 ARB 已完成示波器闭环验收 |
-| Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份和只读测量已实机验证；M131/M132 未实机验证 |
+| Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。
@@ -55,6 +55,7 @@ src/lab_equipment_mcp/
 |       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL 环境诊断
 |       `-- afg_2125.py          # AFG-2125 波形、调制、扫频、ARB 和输出保护
 |   `-- maynuo/
+|       |-- diagnostics.py       # CH340/CH341、COM 与 VISA ASRL 环境诊断
 |       `-- m8811.py             # M8811 TTL/RS-232/RS-485 SCPI 和输出保护
 `-- server.py                    # MCP 工具注册入口
 ```
