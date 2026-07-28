@@ -22,7 +22,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested |
-| Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity and read-only measurements hardware-tested; M131/M132 untested |
+| Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
 documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.
@@ -59,6 +59,7 @@ src/lab_equipment_mcp/
 |       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL diagnostics
 |       `-- afg_2125.py          # AFG-2125 waveform, modulation, sweep, ARB, and safety
 |   `-- maynuo/
+|       |-- diagnostics.py       # CH340/CH341, COM, and VISA ASRL diagnostics
 |       `-- m8811.py             # M8811 TTL/RS-232/RS-485 SCPI and output safety
 `-- server.py                    # MCP tool registration
 ```
@@ -390,6 +391,10 @@ The M8811 driver distinguishes its rear 5 V TTL DB9 from standard RS-232. It can
 auto-enumerate connected CH340/CH341 adapters and match their changing COM assignments to
 VISA ASRL resources. Auto-selection occurs only for one candidate; multiple candidates
 require an explicit resource. M131/RS-232 and M132/RS-485 paths are also modeled.
+`m8811_connect` accepts the panel-selectable 4800/9600/19200/38400 baud rates and
+none/even/odd parity. These parameters configure only the PC-side serial session; the MCP
+does not claim to change the instrument's panel communication settings remotely. LIST's
+200 steps are validated as 200/100/50/25 steps per area for 1/2/4/8-area partitions.
 
 - `m8811_diagnose_setup`, `m8811_connect`, `m8811_identify`, `m8811_disconnect`
 - `m8811_get_settings`, `m8811_measure`
@@ -399,9 +404,15 @@ require an explicit resource. M131/RS-232 and M132/RS-485 paths are also modeled
 - `m8811_set_remote_sense`, `m8811_set_panel_control`, `m8811_clear_amp_hours`
 - `m8811_query_scpi`, `m8811_write_scpi`
 
-CH340 USB-TTL identity and read-only measurements are hardware-tested with firmware V2.6.
-The assigned COM number and instrument serial number are not recorded. See the
-[M8811 guide](docs/maynuo/M8811.md) for wiring, complete SCPI coverage, and safety controls.
+CH340 USB-TTL identity, setting read-back, safety guards, FIX output, and two-level LIST
+output are hardware-tested with firmware V2.6 and a nominal 200-ohm resistor. A 1 V FIX
+test measured 0.9985 V/4.87 mA. Sustained 20-second tests measured approximately
+5.000 V/24.86 mA and 10.001 V/49.86 mA; the 1 V/2 V LIST loop measured stable levels of
+approximately 0.999 V/4.9 mA and 1.999 V/9.9 mA. `MEAS:AHRD?` and `MEAS:DRM?` consistently
+timed out on this firmware. DVM, DRM, remote sense, non-default panel serial settings,
+M131, and M132 remain physically untested. The assigned COM number and instrument serial
+number are not recorded. See the [M8811 guide](docs/maynuo/M8811.md) for wiring, complete
+SCPI coverage, installation, troubleshooting, and safety controls.
 
 ## Add Another Device
 
