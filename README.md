@@ -484,8 +484,11 @@ LIST 的 200 步存储会随 1/2/4/8 个区域联动为每区 200/100/50/25 步�
 - `m8811_set_remote_sense`、`m8811_set_panel_control`、`m8811_clear_amp_hours`
 - `m8811_query_scpi`、`m8811_write_scpi`
 
-CH340 USB-TTL 身份和只读测量已在固件 V2.6 上实机验证。文档不记录动态分配的
-COM 编号和设备序列号。接线、完整 SCPI 覆盖和安全策略见
+CH340 USB-TTL 身份、设置读回、保护门、FIX 输出和 LIST 两级循环已在固件 V2.6 上
+实机验证。200 Ω 负载下，1 V FIX 实测 0.9985 V/4.87 mA，LIST 的 1 V/2 V 稳定值约为
+0.999 V/4.9 mA 和 1.999 V/9.9 mA。`MEAS:AHRD?` 与 `MEAS:DRM?` 在该固件上超时；
+DVM、DRM、远端采样和非默认串口参数因未接对应接口或未改面板设置而未实测。
+文档不记录动态分配的 COM 编号和设备序列号。接线、完整 SCPI 覆盖和安全策略见
 [M8811 使用说明](docs/maynuo/M8811.md)。
 
 ## 增加其他设备
