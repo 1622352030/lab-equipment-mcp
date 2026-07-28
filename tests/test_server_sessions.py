@@ -65,3 +65,41 @@ def test_generic_identify_redacts_m8811_serial(monkeypatch) -> None:
     )
     result = server.identify_instrument()
     assert result["identity"] == "MAYNUO,M8811,<redacted>,V2.6"
+
+
+def test_m8811_connect_forwards_manual_serial_settings(monkeypatch) -> None:
+    calls = []
+
+    def connect(resource, timeout_ms, **kwargs):
+        calls.append((resource, timeout_ms, kwargs))
+        return "MAYNUO,M8811,<redacted>,V2.6"
+
+    monkeypatch.setattr(server.m8811_backend, "_resource_name", "ASRL7::INSTR")
+    monkeypatch.setattr(server.m8811, "connect", connect)
+    monkeypatch.setattr(
+        server.m8811,
+        "identity",
+        lambda: {"connection_type": "ttl-serial", "parity": "odd"},
+    )
+
+    result = server.m8811_connect(baud_rate=19200, parity="odd")
+
+    assert calls == [
+        (
+            None,
+            5000,
+            {
+                "connection": "ttl",
+                "address": None,
+                "baud_rate": 19200,
+                "parity": "odd",
+            },
+        )
+    ]
+    assert result == {
+        "resource": "ASRL7::INSTR",
+        "interface_type": "ttl-serial",
+        "baud_rate": 19200,
+        "parity": "odd",
+        "identity": "MAYNUO,M8811,<redacted>,V2.6",
+    }

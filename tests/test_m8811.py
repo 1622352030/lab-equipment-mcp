@@ -3,7 +3,10 @@ import pytest
 from lab_equipment_mcp.core.errors import ScopeError
 from lab_equipment_mcp.core.interfaces import InterfaceType
 from lab_equipment_mcp.devices.maynuo.m8811 import (
+    LIST_AREA_CAPACITIES,
     M8811,
+    M8811_BAUD_RATES,
+    M8811_PARITIES,
     M8811_PROFILE,
     parse_identity,
     parse_vcm,
@@ -55,6 +58,16 @@ class FakeBackend:
             self.responses["VOLT:PROT?"] = upper.split(None, 1)[1]
         if upper.startswith("MODE "):
             self.responses["MODE?"] = upper.split(None, 1)[1]
+        if upper.startswith("LIST:AREA "):
+            self.responses["LIST:AREA?"] = upper.split(None, 1)[1]
+        if upper.startswith("LIST:COUN "):
+            self.responses["LIST:COUN?"] = upper.split(None, 1)[1]
+        if upper.startswith("LIST:MODE "):
+            self.responses["LIST:MODE?"] = upper.split(None, 1)[1]
+        for command in ("LIST:VOLT", "LIST:CURR", "LIST:WIDT"):
+            if upper.startswith(f"{command} "):
+                step, value = upper.split(None, 1)[1].split(",", 1)
+                self.responses[f"{command}? {step}"] = value
 
 
 def connected_driver(backend: FakeBackend | None = None) -> M8811:
@@ -110,10 +123,35 @@ def test_connect_requires_explicit_serial_resource_and_redacts_identity() -> Non
 
     backend = Backend()
     driver = M8811(backend)
-    assert driver.connect("ASRL7::INSTR") == "MAYNUO,M8811,<redacted>,V2.6"
-    assert backend.args[2].flow_control == "none"
+    assert (
+        driver.connect("ASRL7::INSTR", baud_rate=4800, parity="EVEN")
+        == "MAYNUO,M8811,<redacted>,V2.6"
+    )
+    session = backend.args[2]
+    assert session.baud_rate == 4800
+    assert session.parity == "even"
+    assert session.flow_control == "none"
+    assert driver.identity()["baud_rate"] == "4800"
+    assert driver.identity()["parity"] == "even"
     with pytest.raises(ScopeError, match="VISA serial resource"):
         M8811(backend).connect("USB0::1::INSTR")
+
+
+@pytest.mark.parametrize("baud_rate", [1200, 115200])
+def test_connect_rejects_unsupported_baud_rate(baud_rate: int) -> None:
+    with pytest.raises(ValueError, match="baud_rate must be"):
+        M8811(FakeBackend()).connect("ASRL7::INSTR", baud_rate=baud_rate)
+
+
+@pytest.mark.parametrize("parity", ["mark", "space"])
+def test_connect_rejects_unsupported_parity(parity: str) -> None:
+    with pytest.raises(ValueError, match="parity must be"):
+        M8811(FakeBackend()).connect("ASRL7::INSTR", parity=parity)
+
+
+def test_connect_accepts_all_manual_serial_options() -> None:
+    assert M8811_BAUD_RATES == (4800, 9600, 19200, 38400)
+    assert M8811_PARITIES == ("none", "even", "odd")
 
 
 def test_rs485_connect_uses_addressed_identity_query() -> None:
@@ -213,15 +251,43 @@ def test_list_bounds_and_readback() -> None:
         "area": 1,
         "count": 20,
         "mode": "CONT",
+        "maximum_steps_per_area": 200,
     }
     assert driver.set_list_step(1, voltage_v=5, current_a=0.1, width_ms=2000) == {
         "step": 1,
         "voltage_v": 5.0,
         "current_a": 0.1,
         "width_ms": 2000.0,
+        "list_area": 1,
+        "maximum_steps_per_area": 200,
     }
     with pytest.raises(ValueError, match="step must be between 1 and 200"):
         driver.set_list_step(201, voltage_v=1)
+
+
+@pytest.mark.parametrize("area,capacity", LIST_AREA_CAPACITIES.items())
+def test_list_partition_controls_step_capacity(area: int, capacity: int) -> None:
+    backend = FakeBackend()
+    driver = connected_driver(backend)
+    assert driver.configure_list(area=area, count=capacity) == {
+        "area": area,
+        "count": capacity,
+        "maximum_steps_per_area": capacity,
+    }
+    assert driver.set_list_step(capacity, voltage_v=1)["list_area"] == area
+    with pytest.raises(ValueError, match=rf"between 1 and {capacity}"):
+        driver.set_list_step(capacity + 1, voltage_v=1)
+    with pytest.raises(ValueError, match=rf"between 1 and {capacity}"):
+        driver.configure_list(count=capacity + 1)
+
+
+def test_list_recall_is_limited_to_current_partition_count() -> None:
+    backend = FakeBackend()
+    driver = connected_driver(backend)
+    driver.configure_list(area=4)
+    assert driver.recall_list(4, confirm_recall=True)["area"] == 4
+    with pytest.raises(ValueError, match="between 1 and 4"):
+        driver.recall_list(5, confirm_recall=True)
 
 
 def test_raw_scpi_accepts_documented_long_forms_and_blocks_unsafe_writes() -> None:

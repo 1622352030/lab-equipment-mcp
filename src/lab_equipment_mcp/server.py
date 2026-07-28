@@ -287,16 +287,26 @@ def m8811_connect(
     timeout_ms: int = 5000,
     connection: str = "ttl",
     rs485_address: int | None = None,
-) -> dict[str, str]:
-    """Connect to an explicitly selected M8811 serial resource and return a redacted identity."""
+    baud_rate: int = 9600,
+    parity: str = "none",
+) -> dict[str, Any]:
+    """Connect using serial settings that match the M8811 front-panel configuration."""
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
     identity = m8811.connect(
-        resource, timeout_ms, connection=connection, address=rs485_address
+        resource,
+        timeout_ms,
+        connection=connection,
+        address=rs485_address,
+        baud_rate=baud_rate,
+        parity=parity,
     )
+    connection_settings = m8811.identity()
     return {
         "resource": m8811_backend.resource_name or "",
-        "interface_type": m8811.identity()["connection_type"],
+        "interface_type": connection_settings["connection_type"],
+        "baud_rate": baud_rate,
+        "parity": connection_settings["parity"],
         "identity": identity,
     }
 

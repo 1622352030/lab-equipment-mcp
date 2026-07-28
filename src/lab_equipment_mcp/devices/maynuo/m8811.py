@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ...core.errors import ScopeError
@@ -14,6 +14,9 @@ from .diagnostics import discover_ch340_resources
 M8811_MAX_VOLTAGE = 30.0
 M8811_MAX_CURRENT = 5.0
 M8811_MAX_POWER = 150.0
+M8811_BAUD_RATES = (4800, 9600, 19200, 38400)
+M8811_PARITIES = ("none", "even", "odd")
+LIST_AREA_CAPACITIES = {1: 200, 2: 100, 4: 50, 8: 25}
 
 M8811_SESSION = SessionConfig(
     read_termination="\n",
@@ -155,6 +158,8 @@ class M8811:
         self._identity: M8811Identity | None = None
         self._connection_type: InterfaceType | None = None
         self._address: int | None = None
+        self._baud_rate: int | None = None
+        self._parity: str | None = None
 
     def connect(
         self,
@@ -163,6 +168,8 @@ class M8811:
         *,
         connection: str = "ttl",
         address: int | None = None,
+        baud_rate: int = 9600,
+        parity: str = "none",
     ) -> str:
         try:
             connection_type = _CONNECTION_TYPES[connection.strip().lower()]
@@ -188,6 +195,11 @@ class M8811:
             resource_name = resources[0]
         if not resource_name.upper().startswith("ASRL"):
             raise ScopeError("M8811 requires a VISA serial resource such as ASRLx::INSTR")
+        if baud_rate not in M8811_BAUD_RATES:
+            raise ValueError("baud_rate must be 4800, 9600, 19200, or 38400")
+        normalized_parity = parity.strip().lower()
+        if normalized_parity not in M8811_PARITIES:
+            raise ValueError("parity must be none, even, or odd")
         if address is not None:
             if connection_type is not InterfaceType.RS485:
                 raise ValueError("address is only valid for an M132/RS-485 connection")
@@ -195,8 +207,13 @@ class M8811:
                 raise ValueError("RS-485 address must be between 0 and 254")
 
         identity_command = f"${address:03d}*IDN?" if address is not None else "*IDN?"
+        session = replace(
+            M8811_SESSION,
+            baud_rate=baud_rate,
+            parity=normalized_parity,
+        )
         identity_text = self.backend.connect(
-            resource_name, timeout_ms, M8811_SESSION, identity_command=identity_command
+            resource_name, timeout_ms, session, identity_command=identity_command
         )
         try:
             identity = parse_identity(identity_text)
@@ -207,6 +224,8 @@ class M8811:
         self._identity = identity
         self._connection_type = connection_type
         self._address = address
+        self._baud_rate = baud_rate
+        self._parity = normalized_parity
         return identity.redacted()
 
     def disconnect(self) -> None:
@@ -215,6 +234,8 @@ class M8811:
         self._identity = None
         self._connection_type = None
         self._address = None
+        self._baud_rate = None
+        self._parity = None
 
     def _require_connected(self) -> None:
         if self._resource is None or self.backend.resource_name != self._resource:
@@ -230,6 +251,8 @@ class M8811:
             "firmware": self._identity.firmware,
             "resource": self._resource or "",
             "connection_type": self._connection_type.value if self._connection_type else "",
+            "baud_rate": str(self._baud_rate or ""),
+            "parity": self._parity or "",
         }
 
     def _frame(self, command: str, *, query: bool = False) -> str:
@@ -264,6 +287,8 @@ class M8811:
             "resource": self._resource,
             "connection_type": self._connection_type.value if self._connection_type else None,
             "rs485_address": self._address,
+            "baud_rate": self._baud_rate,
+            "parity": self._parity,
             "output_enabled": self.output_enabled(),
             "mode": self._query("MODE?"),
             "voltage_setpoint_v": float(self._query("VOLT?")),
@@ -361,16 +386,33 @@ class M8811:
     ) -> dict[str, Any]:
         self._require_output_off()
         result: dict[str, Any] = {}
+        if area is not None and area not in LIST_AREA_CAPACITIES:
+            raise ValueError("area must be 1, 2, 4, or 8")
+        target_area = area if area is not None else int(self._query("LIST:AREA?"))
+        if target_area not in LIST_AREA_CAPACITIES:
+            raise ScopeError(f"Unexpected M8811 LIST area response: {target_area!r}")
+        maximum_steps = LIST_AREA_CAPACITIES[target_area]
+        if count is not None and not 1 <= count <= maximum_steps:
+            raise ValueError(
+                f"count must be between 1 and {maximum_steps} when LIST area is {target_area}"
+            )
         if area is not None:
-            if area not in {1, 2, 4, 8}:
-                raise ValueError("area must be 1, 2, 4, or 8")
             self._write(f"LIST:AREA {area}")
-            result["area"] = int(self._query("LIST:AREA?"))
+            actual_area = int(self._query("LIST:AREA?"))
+            if actual_area != area:
+                raise ScopeError(
+                    f"M8811 LIST area read-back mismatch: requested {area}, reports {actual_area}"
+                )
+            result["area"] = actual_area
         if count is not None:
-            if not 1 <= count <= 200:
-                raise ValueError("count must be between 1 and 200")
             self._write(f"LIST:COUN {count}")
-            result["count"] = int(self._query("LIST:COUN?"))
+            actual_count = int(self._query("LIST:COUN?"))
+            if actual_count != count:
+                raise ScopeError(
+                    f"M8811 LIST count read-back mismatch: requested {count}, "
+                    f"reports {actual_count}"
+                )
+            result["count"] = actual_count
         if mode is not None:
             mode_map = {"CONT": "CONT", "CONTINUOUS": "CONT", "STEP": "STEP", "LOOP": "LOOP"}
             try:
@@ -382,6 +424,7 @@ class M8811:
             if not actual.startswith(token):
                 raise ScopeError(f"M8811 LIST mode read-back mismatch: {actual!r}")
             result["mode"] = actual
+        result["maximum_steps_per_area"] = maximum_steps
         return result
 
     def set_list_step(
@@ -393,8 +436,14 @@ class M8811:
         width_ms: float | None = None,
     ) -> dict[str, Any]:
         self._require_output_off()
-        if not 1 <= step <= 200:
-            raise ValueError("step must be between 1 and 200")
+        area = int(self._query("LIST:AREA?"))
+        if area not in LIST_AREA_CAPACITIES:
+            raise ScopeError(f"Unexpected M8811 LIST area response: {area!r}")
+        maximum_steps = LIST_AREA_CAPACITIES[area]
+        if not 1 <= step <= maximum_steps:
+            raise ValueError(
+                f"step must be between 1 and {maximum_steps} when LIST area is {area}"
+            )
         result: dict[str, Any] = {"step": step}
         values = (
             ("voltage_v", voltage_v, 0, M8811_MAX_VOLTAGE, "LIST:VOLT", 0.0002),
@@ -412,12 +461,17 @@ class M8811:
             result[name] = actual
         if len(result) == 1:
             raise ValueError("provide at least one of voltage_v, current_a, or width_ms")
+        result["list_area"] = area
+        result["maximum_steps_per_area"] = maximum_steps
         return result
 
     def recall_list(self, area: int, *, confirm_recall: bool = False) -> dict[str, Any]:
         self._require_output_off()
-        if not 1 <= area <= 8:
-            raise ValueError("area must be between 1 and 8")
+        area_count = int(self._query("LIST:AREA?"))
+        if area_count not in LIST_AREA_CAPACITIES:
+            raise ScopeError(f"Unexpected M8811 LIST area response: {area_count!r}")
+        if not 1 <= area <= area_count:
+            raise ValueError(f"area must be between 1 and {area_count} for current LIST partition")
         if not confirm_recall:
             raise ValueError("Loading stored LIST data requires confirm_recall=true")
         self._write(f"LIST:RCL {area}")
