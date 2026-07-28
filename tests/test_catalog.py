@@ -33,3 +33,10 @@ def test_catalog_exposes_device_interfaces() -> None:
         "lan-socket",
         "gpib",
     }
+    assert devices[5]["vendor"] == "Maynuo"
+    assert devices[5]["model"] == "M8811"
+    assert {item["interface_type"] for item in devices[5]["interfaces"]} == {
+        "ttl-serial",
+        "rs232",
+        "rs485",
+    }

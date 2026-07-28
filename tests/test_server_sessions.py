@@ -8,6 +8,7 @@ def test_supported_devices_use_independent_backends() -> None:
     assert server.afg2125.backend is server.afg2125_backend
     assert server.agilent33500b.backend is server.agilent33500b_backend
     assert server.sdg1062x.backend is server.sdg1062x_backend
+    assert server.m8811.backend is server.m8811_backend
     assert server.dpo2012b_backend is not server.afg2125_backend
     assert server.discovery_backend is not server.dpo2012b_backend
     assert server.discovery_backend is not server.afg2125_backend
@@ -16,6 +17,7 @@ def test_supported_devices_use_independent_backends() -> None:
     assert server.discovery_backend is not server.agilent33500b_backend
     assert server.sdg1062x_backend is not server.discovery_backend
     assert server.sdg1062x_backend is not server.agilent33500b_backend
+    assert server.m8811_backend is not server.discovery_backend
 
 
 def test_disconnect_all_closes_each_backend(monkeypatch) -> None:
@@ -35,8 +37,9 @@ def test_disconnect_all_closes_each_backend(monkeypatch) -> None:
     monkeypatch.setattr(
         server.discovery_backend, "disconnect", lambda: calls.append("discovery")
     )
+    monkeypatch.setattr(server.m8811, "disconnect", lambda: calls.append("m8811"))
     assert server.disconnect_instrument() == "Disconnected all instruments"
-    assert calls == ["dpo", "afg", "agilent", "siglent", "discovery"]
+    assert calls == ["dpo", "afg", "agilent", "siglent", "m8811", "discovery"]
 
 
 def test_identify_requires_device_prefix_when_both_connected(monkeypatch) -> None:
@@ -44,3 +47,59 @@ def test_identify_requires_device_prefix_when_both_connected(monkeypatch) -> Non
     monkeypatch.setattr(server.afg2125_backend, "_resource_name", "ASRL5::INSTR")
     with pytest.raises(ValueError, match="Multiple instruments"):
         server.identify_instrument()
+
+
+def test_generic_identify_redacts_m8811_serial(monkeypatch) -> None:
+    monkeypatch.setattr(server.m8811_backend, "_resource_name", "ASRL7::INSTR")
+    monkeypatch.setattr(
+        server.m8811,
+        "identity",
+        lambda: {
+            "manufacturer": "MAYNUO",
+            "model": "M8811",
+            "serial": "redacted",
+            "firmware": "V2.6",
+            "resource": "ASRL7::INSTR",
+            "connection_type": "ttl-serial",
+        },
+    )
+    result = server.identify_instrument()
+    assert result["identity"] == "MAYNUO,M8811,<redacted>,V2.6"
+
+
+def test_m8811_connect_forwards_manual_serial_settings(monkeypatch) -> None:
+    calls = []
+
+    def connect(resource, timeout_ms, **kwargs):
+        calls.append((resource, timeout_ms, kwargs))
+        return "MAYNUO,M8811,<redacted>,V2.6"
+
+    monkeypatch.setattr(server.m8811_backend, "_resource_name", "ASRL7::INSTR")
+    monkeypatch.setattr(server.m8811, "connect", connect)
+    monkeypatch.setattr(
+        server.m8811,
+        "identity",
+        lambda: {"connection_type": "ttl-serial", "parity": "odd"},
+    )
+
+    result = server.m8811_connect(baud_rate=19200, parity="odd")
+
+    assert calls == [
+        (
+            None,
+            5000,
+            {
+                "connection": "ttl",
+                "address": None,
+                "baud_rate": 19200,
+                "parity": "odd",
+            },
+        )
+    ]
+    assert result == {
+        "resource": "ASRL7::INSTR",
+        "interface_type": "ttl-serial",
+        "baud_rate": 19200,
+        "parity": "odd",
+        "identity": "MAYNUO,M8811,<redacted>,V2.6",
+    }

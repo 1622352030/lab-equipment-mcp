@@ -21,6 +21,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 双通道波形、模式和 ARB 已完成示波器闭环验收 |
+| Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份和只读测量已实机验证；M131/M132 未实机验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。
@@ -29,6 +30,10 @@ DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 
 AFG-2125 使用后部 Mini USB-B 端口，但实际通信方式是 USB CDC 虚拟串口，
 Windows 中显示为 `AFG CDC Device (COMx)`，通过 `ASRLx::INSTR` 访问，
 并不是 USBTMC。详见 [AFG-2125 使用说明](docs/gw_instek/AFG-2125.md)。
+
+M8811 后面板 DB9 是 5 V TTL 串口，不是标准 RS-232。必须使用 M133 或经确认的
+USB-TTL 转换器；标准 RS-232 前需要 M131，RS-485 前需要 M132。接线前请阅读
+[M8811 使用说明](docs/maynuo/M8811.md)。
 
 ## 项目结构
 
@@ -49,6 +54,8 @@ src/lab_equipment_mcp/
 |   `-- gw_instek/
 |       |-- diagnostics.py       # Windows CDC/COM/VISA ASRL 环境诊断
 |       `-- afg_2125.py          # AFG-2125 波形、调制、扫频、ARB 和输出保护
+|   `-- maynuo/
+|       `-- m8811.py             # M8811 TTL/RS-232/RS-485 SCPI 和输出保护
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -104,6 +111,9 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
   GPIB 的 VISA Runtime；USB 使用后部 Type-B 设备端口。
 - DSO-X 2012A：Keysight IO Libraries Suite 或支持 USBTMC 的 NI-VISA Runtime；可选
   LAN VXI-11/GPIB 需要对应的 DSOXLAN/DSOXGPIB 模块。
+- M8811：Maynuo M133 或经确认的 USB-TTL 转换器、M131 后的标准 RS-232，或 M132
+  后的 RS-485，再配合可将对应 COM 口暴露为 ASRL 的 VISA Runtime。禁止把后面板
+  TTL DB9 直接连接到标准 RS-232 电平。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
@@ -455,6 +465,32 @@ DSO-X 2012A 已完成 USB 身份、通道查询、采集设置、测量源、波
 双通道接收闭环实测。闭环结果为 CH1 1 kHz/0.5 Vpp -> 1000.0 Hz/0.52 Vpp，CH2
 2 kHz/0.5 Vpp -> 2000.0 Hz/0.52 Vpp。LAN、GPIB、MSO 数字通道和未安装选件仍未实测。
 所有输出测试均在结束时关闭信号源并恢复示波器状态。
+
+## Maynuo M8811 工具
+
+M8811 驱动明确区分后面板 5 V TTL DB9 与标准 RS-232。驱动会枚举已连接的
+CH340/CH341，并将其当前 COM 编号匹配到 VISA ASRL 资源；只有唯一候选时才自动选择，
+存在多个候选时要求显式指定。M131/RS-232 和 M132/RS-485 链路也已分别建模。
+`m8811_connect` 可按仪器面板设置选择 4800/9600/19200/38400 波特率和
+none/even/odd 校验；这些参数只配置电脑端串口，不会远程修改仪器面板配置。
+LIST 的 200 步存储会随 1/2/4/8 个区域联动为每区 200/100/50/25 步，相关工具会按
+当前区域配置检查步号、步数和召回区域。
+
+- `m8811_diagnose_setup`、`m8811_connect`、`m8811_identify`、`m8811_disconnect`
+- `m8811_get_settings`、`m8811_measure`
+- `m8811_set_voltage`、`m8811_set_current`、`m8811_set_voltage_protection`
+- `m8811_set_output`、`m8811_set_mode`
+- `m8811_configure_list`、`m8811_set_list_step`、`m8811_recall_list`
+- `m8811_set_remote_sense`、`m8811_set_panel_control`、`m8811_clear_amp_hours`
+- `m8811_query_scpi`、`m8811_write_scpi`
+
+CH340 USB-TTL 身份、设置读回、保护门、FIX 输出和 LIST 两级循环已在固件 V2.6 上
+实机验证。200 Ω 负载下，1 V FIX 实测 0.9985 V/4.87 mA，LIST 的 1 V/2 V 稳定值约为
+0.999 V/4.9 mA 和 1.999 V/9.9 mA。5 V 和 10 V 又分别持续输出 20 秒，实测稳定在
+约 5.000 V/24.86 mA 和 10.001 V/49.86 mA。`MEAS:AHRD?` 与 `MEAS:DRM?` 在该固件上超时；
+DVM、DRM、远端采样和非默认串口参数因未接对应接口或未改面板设置而未实测。
+文档不记录动态分配的 COM 编号和设备序列号。接线、完整 SCPI 覆盖和安全策略见
+[M8811 使用说明](docs/maynuo/M8811.md)。
 
 ## 增加其他设备
 

@@ -14,6 +14,8 @@ from .devices.agilent.series_33500b import Agilent33500B
 from .devices.catalog import list_device_profiles
 from .devices.gw_instek.afg_2125 import AFG2125
 from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_host
+from .devices.maynuo.diagnostics import diagnose_host as diagnose_m8811_host
+from .devices.maynuo.m8811 import M8811
 from .devices.siglent.diagnostics import diagnose_host as diagnose_sdg1062x_host
 from .devices.siglent.sdg_1000x import SDG1000X
 from .devices.tektronix.diagnostics import diagnose_host
@@ -25,11 +27,13 @@ afg2125_backend = VisaBackend()
 agilent33500b_backend = VisaBackend()
 agilentdsox2012a_backend = VisaBackend()
 sdg1062x_backend = VisaBackend()
+m8811_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
 agilent33500b = Agilent33500B(agilent33500b_backend)
 agilentdsox2012a = AgilentDSOX2012A(agilentdsox2012a_backend)
 sdg1062x = SDG1000X(sdg1062x_backend)
+m8811 = M8811(m8811_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -68,6 +72,12 @@ def dpo2012b_diagnose_setup() -> dict[str, Any]:
 def afg2125_diagnose_setup() -> dict[str, Any]:
     """Check the AFG-2125 USB CDC driver, COM port, VISA ASRL, and PyVISA readiness."""
     return diagnose_afg2125_host(discovery_backend)
+
+
+@mcp.tool(name="m8811_diagnose_setup", annotations=READ_ONLY)
+def m8811_diagnose_setup() -> dict[str, Any]:
+    """Match connected CH340/CH341 ports to VISA ASRL resources without probing them."""
+    return diagnose_m8811_host(discovery_backend)
 
 
 @mcp.tool(name="agilent33500b_diagnose_setup", annotations=READ_ONLY)
@@ -271,6 +281,36 @@ def sdg1062x_connect(resource: str | None = None, timeout_ms: int = 5000) -> dic
     }
 
 
+@mcp.tool(name="m8811_connect", annotations=STATE_CHANGE)
+def m8811_connect(
+    resource: str | None = None,
+    timeout_ms: int = 5000,
+    connection: str = "ttl",
+    rs485_address: int | None = None,
+    baud_rate: int = 9600,
+    parity: str = "none",
+) -> dict[str, Any]:
+    """Connect using serial settings that match the M8811 front-panel configuration."""
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = m8811.connect(
+        resource,
+        timeout_ms,
+        connection=connection,
+        address=rs485_address,
+        baud_rate=baud_rate,
+        parity=parity,
+    )
+    connection_settings = m8811.identity()
+    return {
+        "resource": m8811_backend.resource_name or "",
+        "interface_type": connection_settings["connection_type"],
+        "baud_rate": baud_rate,
+        "parity": connection_settings["parity"],
+        "identity": identity,
+    }
+
+
 @mcp.tool(name="disconnect_instrument", annotations=STATE_CHANGE)
 def disconnect_instrument() -> str:
     """Close all active instrument and discovery VISA sessions."""
@@ -279,6 +319,7 @@ def disconnect_instrument() -> str:
     agilent33500b_backend.disconnect()
     sdg1062x_backend.disconnect()
     agilentdsox2012a_backend.disconnect()
+    m8811.disconnect()
     discovery_backend.disconnect()
     return "Disconnected all instruments"
 
@@ -314,6 +355,13 @@ def sdg1062x_disconnect() -> str:
     return "SDG1062X disconnected"
 
 
+@mcp.tool(name="m8811_disconnect", annotations=STATE_CHANGE)
+def m8811_disconnect() -> str:
+    """Close only the M8811 serial connection."""
+    m8811.disconnect()
+    return "M8811 disconnected"
+
+
 @mcp.tool(name="identify_instrument", annotations=READ_ONLY)
 def identify_instrument() -> dict[str, str]:
     """Identify the only connected instrument; use prefixed tools when both are connected."""
@@ -323,6 +371,7 @@ def identify_instrument() -> dict[str, str]:
         ("33500B Series", agilent33500b_backend),
         ("SDG1000X Series", sdg1062x_backend),
         ("DSO-X 2012A", agilentdsox2012a_backend),
+        ("M8811", m8811_backend),
     ]
     connected = [(name, item) for name, item in connected if item.resource_name]
     if not connected:
@@ -332,6 +381,16 @@ def identify_instrument() -> dict[str, str]:
             "Multiple instruments are connected; use dpo2012b_identify or afg2125_identify"
         )
     name, active_backend = connected[0]
+    if name == "M8811":
+        identity = m8811.identity()
+        return {
+            "device": name,
+            "resource": identity["resource"],
+            "identity": (
+                f"{identity['manufacturer']},{identity['model']},<redacted>,"
+                f"{identity['firmware']}"
+            ),
+        }
     return {
         "device": name,
         "resource": active_backend.resource_name or "",
@@ -373,6 +432,12 @@ def sdg1062x_identify() -> dict[str, str]:
         "resource": sdg1062x_backend.resource_name or "",
         "identity": sdg1062x_backend.query("*IDN?"),
     }
+
+
+@mcp.tool(name="m8811_identify", annotations=READ_ONLY)
+def m8811_identify() -> dict[str, str]:
+    """Return M8811 identity fields with the hardware serial number redacted."""
+    return m8811.identity()
 
 
 @mcp.tool(name="sdg1062x_get_capabilities", annotations=READ_ONLY)
@@ -794,6 +859,111 @@ def afg2125_set_ramp_symmetry(symmetry_percent: float) -> dict[str, float]:
     return {"symmetry_percent": afg2125.set_ramp_symmetry(symmetry_percent)}
 
 
+@mcp.tool(name="m8811_get_settings", annotations=READ_ONLY)
+def m8811_get_settings() -> dict[str, Any]:
+    """Read output state, mode, setpoints, protection, and rated model limits."""
+    return m8811.get_settings()
+
+
+@mcp.tool(name="m8811_measure", annotations=READ_ONLY)
+def m8811_measure(measurement: str = "vcm") -> dict[str, Any]:
+    """Measure voltage, current, DVM, combined VCM, amp-hours, or DRM resistance."""
+    return m8811.measure(measurement)
+
+
+@mcp.tool(name="m8811_set_voltage", annotations=STATE_CHANGE)
+def m8811_set_voltage(voltage_v: float) -> dict[str, float]:
+    """Set 0-30 V while output is off and verify the setting by read-back."""
+    return {"voltage_v": m8811.set_voltage(voltage_v)}
+
+
+@mcp.tool(name="m8811_set_current", annotations=STATE_CHANGE)
+def m8811_set_current(current_a: float) -> dict[str, float]:
+    """Set the 0-5 A current limit while output is off and verify by read-back."""
+    return {"current_a": m8811.set_current(current_a)}
+
+
+@mcp.tool(name="m8811_set_voltage_protection", annotations=STATE_CHANGE)
+def m8811_set_voltage_protection(voltage_v: float) -> dict[str, float]:
+    """Set the 0-30 V voltage protection limit while output is off and verify it."""
+    return {"voltage_protection_v": m8811.set_voltage_protection(voltage_v)}
+
+
+@mcp.tool(name="m8811_set_output", annotations=STATE_CHANGE)
+def m8811_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str, bool]:
+    """Disable freely, or enable only with explicit load/cabling confirmation and read-back."""
+    return {"enabled": m8811.set_output(enabled, confirm_enable=confirm_enable)}
+
+
+@mcp.tool(name="m8811_set_mode", annotations=STATE_CHANGE)
+def m8811_set_mode(mode: str, confirm_drm: bool = False) -> dict[str, str]:
+    """Select FIX, LIST, or guarded DRM/DRM0/DRM1/DRM2 mode while output is off."""
+    return {"mode": m8811.set_mode(mode, confirm_drm=confirm_drm)}
+
+
+@mcp.tool(name="m8811_configure_list", annotations=STATE_CHANGE)
+def m8811_configure_list(
+    area: int | None = None, count: int | None = None, mode: str | None = None
+) -> dict[str, Any]:
+    """Configure LIST memory partition, step count, and continuous/step/loop behavior."""
+    return m8811.configure_list(area=area, count=count, mode=mode)
+
+
+@mcp.tool(name="m8811_set_list_step", annotations=STATE_CHANGE)
+def m8811_set_list_step(
+    step: int,
+    voltage_v: float | None = None,
+    current_a: float | None = None,
+    width_ms: float | None = None,
+) -> dict[str, Any]:
+    """Set and read back voltage, current, or delay for one LIST step."""
+    return m8811.set_list_step(
+        step, voltage_v=voltage_v, current_a=current_a, width_ms=width_ms
+    )
+
+
+@mcp.tool(name="m8811_recall_list", annotations=STATE_CHANGE)
+def m8811_recall_list(area: int, confirm_recall: bool = False) -> dict[str, Any]:
+    """Load stored LIST data only after explicit confirmation; the manual has no read-back."""
+    return m8811.recall_list(area, confirm_recall=confirm_recall)
+
+
+@mcp.tool(name="m8811_set_remote_sense", annotations=STATE_CHANGE)
+def m8811_set_remote_sense(enabled: bool) -> dict[str, Any]:
+    """Set remote sense while output is off; the manual documents no state query."""
+    return m8811.set_remote_sense(enabled)
+
+
+@mcp.tool(name="m8811_set_panel_control", annotations=STATE_CHANGE)
+def m8811_set_panel_control(
+    remote: bool, confirm_remote: bool = False
+) -> dict[str, Any]:
+    """Enter guarded PC/front-panel lock mode, or return to local panel control."""
+    return m8811.set_panel_control(remote, confirm_remote=confirm_remote)
+
+
+@mcp.tool(name="m8811_clear_amp_hours", annotations=STATE_CHANGE)
+def m8811_clear_amp_hours(confirm_clear: bool = False) -> dict[str, str]:
+    """Clear the accumulated amp-hour counter only after explicit confirmation."""
+    return m8811.clear_amp_hours(confirm_clear=confirm_clear)
+
+
+@mcp.tool(name="m8811_query_scpi", annotations=READ_ONLY)
+def m8811_query_scpi(command: str) -> dict[str, str]:
+    """Run any query documented in the M88 manual; *IDN? serial data is redacted."""
+    return {"command": command, "response": m8811.query(command)}
+
+
+@mcp.tool(name="m8811_write_scpi", annotations=STATE_CHANGE)
+def m8811_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, Any]:
+    """Run a safe documented M88 write; dangerous writes must use their guarded typed tools."""
+    if confirm_unsafe:
+        raise ValueError(
+            "M8811 raw unsafe writes remain blocked; use the matching guarded typed tool"
+        )
+    return m8811.write(command)
+
+
 @mcp.tool(name="afg2125_get_mode_settings", annotations=READ_ONLY)
 def afg2125_get_mode_settings() -> dict[str, Any]:
     """Read whether AM, FM, FSK, and sweep modes are enabled."""
@@ -1044,6 +1214,7 @@ atexit.register(afg2125_backend.disconnect)
 atexit.register(agilent33500b_backend.disconnect)
 atexit.register(sdg1062x_backend.disconnect)
 atexit.register(agilentdsox2012a_backend.disconnect)
+atexit.register(m8811.disconnect)
 
 
 if __name__ == "__main__":
