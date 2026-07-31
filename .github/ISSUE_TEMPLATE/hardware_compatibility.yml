@@ -42,4 +42,3 @@ body:
       options:
         - label: I removed serial numbers, credentials, private IPs/hostnames, and unrelated experimental data.
           required: true
-

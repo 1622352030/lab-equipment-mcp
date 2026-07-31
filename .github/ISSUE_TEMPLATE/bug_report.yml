@@ -51,4 +51,3 @@ body:
           required: true
         - label: The reproduction does not require unsafe output, calibration, firmware, or destructive operations.
           required: true
-

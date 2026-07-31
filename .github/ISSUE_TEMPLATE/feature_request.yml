@@ -26,4 +26,3 @@ body:
       options:
         - label: This proposal changes real instrument state or output behavior.
         - label: This proposal is read-only or does not access hardware.
-

@@ -49,4 +49,3 @@ body:
         - label: I can contribute code or documentation.
         - label: I understand untested interfaces must be labeled as untested.
           required: true
-
