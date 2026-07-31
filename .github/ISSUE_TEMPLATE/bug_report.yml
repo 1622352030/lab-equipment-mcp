@@ -1,0 +1,54 @@
+name: Bug report
+description: 报告可复现的软件错误；安全漏洞请勿使用此模板
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先脱敏序列号、私人 IP/COM 编号、用户名、凭据和实验数据。安全问题请阅读 SECURITY.md。
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: main @ abc1234
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model and firmware
+      description: 不要填写设备序列号。
+      placeholder: Tektronix DPO2012B, firmware v1.52
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options: [USBTMC/VISA, LAN/VXI-11, LAN raw socket, GPIB, RS-232/VISA, Native serial, Simulation only, Not applicable]
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and minimal reproduction
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows/Python/VISA Runtime/driver versions; redact sensitive values.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed serial numbers, credentials, private addresses, and unrelated lab data.
+          required: true
+        - label: The reproduction does not require unsafe output, calibration, firmware, or destructive operations.
+          required: true
+

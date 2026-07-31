@@ -436,4 +436,17 @@ uv run python scripts/verify_mcp.py
 uv run python scripts/verify_mcp.py --github
 ```
 
+## Community and Project Use
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md)
+  before contributing.
+- Report vulnerabilities and issues that may place an instrument in an unsafe state privately
+  under [SECURITY.md](SECURITY.md).
+- For installation, driver, and hardware compatibility help, read [SUPPORT.md](SUPPORT.md) and
+  choose the matching issue form.
+- Coursework, publications, awards, and competition use must follow
+  [COMPETITION_USE.md](COMPETITION_USE.md): disclose this project and the exact commit, distinguish
+  existing work from original additions, do not claim the project as original work, and do not
+  imply official participation or endorsement by the maintainer.
+
 The project uses the MIT License.
