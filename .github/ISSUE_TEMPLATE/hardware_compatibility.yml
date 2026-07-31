@@ -1,0 +1,44 @@
+name: Hardware compatibility
+description: 驱动、VISA、USB、LAN、GPIB 或串口识别问题
+title: "[Compatibility] "
+labels: ["hardware-compatibility", "triage"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device model and firmware
+      description: 不要填写序列号。
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Physical and logical interface
+      options: [USB Type-B / USBTMC, USB serial adapter / COM, LAN / VXI-11, LAN / raw socket, GPIB, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host environment
+      description: Windows、Python、VISA Runtime、厂商驱动和连接方式。
+    validations:
+      required: true
+  - type: textarea
+    id: enumeration
+    attributes:
+      label: Enumeration and diagnostics
+      description: 提供脱敏后的设备管理器、VISA 资源或串口诊断结果。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and steps already tried
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed serial numbers, credentials, private IPs/hostnames, and unrelated experimental data.
+          required: true

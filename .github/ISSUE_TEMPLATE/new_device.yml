@@ -1,0 +1,51 @@
+name: New device support
+description: 请求接入新的实验仪器型号
+title: "[Device] "
+labels: ["new-device", "triage"]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Vendor and exact model
+      placeholder: Keysight 33512B
+    validations:
+      required: true
+  - type: textarea
+    id: manuals
+    attributes:
+      label: Official manuals
+      description: 提供官方链接或准确名称，不要上传受版权限制的完整手册。
+    validations:
+      required: true
+  - type: checkboxes
+    id: interfaces
+    attributes:
+      label: Documented interfaces
+      options:
+        - label: USBTMC / rear USB device port
+        - label: LAN VXI-11 / HiSLIP
+        - label: LAN raw socket
+        - label: GPIB
+        - label: RS-232 / serial
+        - label: Other
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Available hardware and test conditions
+      description: 说明是否有实机、接收仪器和安全负载；不要填写序列号或私人地址。
+  - type: textarea
+    id: functions
+    attributes:
+      label: Required functions
+      description: 列出希望远程控制或读取的功能。
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I can help test hardware.
+        - label: I can contribute code or documentation.
+        - label: I understand untested interfaces must be labeled as untested.
+          required: true

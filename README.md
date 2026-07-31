@@ -516,4 +516,12 @@ uv run python scripts/verify_mcp.py
 uv run python scripts/verify_mcp.py --github
 ```
 
+## 社区与项目使用
+
+- 提交代码前请阅读 [贡献指南](CONTRIBUTING.md) 和 [行为准则](CODE_OF_CONDUCT.md)。
+- 安全漏洞和可能导致仪器危险状态的问题请按 [安全策略](SECURITY.md) 私下报告。
+- 安装、驱动和设备兼容问题请先阅读 [支持说明](SUPPORT.md)，再选择对应的 Issue 模板。
+- 课程、论文、评奖和竞赛使用必须遵循 [竞赛与学术使用声明](COMPETITION_USE.md)：显著披露
+  本项目及具体提交，区分既有工作和新增工作，不得冒充原创，也不得暗示维护者官方参赛或背书。
+
 项目使用 MIT License。
