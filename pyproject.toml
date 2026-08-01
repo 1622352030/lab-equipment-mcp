@@ -41,7 +41,7 @@ classifiers = [
 ]
 urls = { Repository = "https://github.com/1622352030/lab-equipment-mcp", Issues = "https://github.com/1622352030/lab-equipment-mcp/issues" }
 dependencies = [
-  "mcp>=1.28.1,<2",
+  "mcp>=1.28.1,<3",
   "pyvisa>=1.15,<2",
 ]
 
