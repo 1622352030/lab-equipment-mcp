@@ -364,3 +364,22 @@ def test_read_arbitrary_waveform_rejects_unsafe_input(connected) -> None:
         driver.read_arbitrary_waveform("../etc/passwd")
     with pytest.raises(ValueError, match="positive integer"):
         driver.read_arbitrary_waveform("lanchk", max_samples=0)
+
+
+def test_pwm_deviation_is_a_time_offset_not_a_percentage(connected) -> None:
+    driver, _ = connected
+    # The guide defines PWM DEVI as a pulse-width offset in seconds; a percentage-style
+    # amount makes the instrument drop the whole command.
+    with pytest.raises(ValueError, match="pulse-width offset in seconds"):
+        driver.configure_modulation(1, "PWM", amount=50)
+    assert driver.configure_modulation(1, "PWM", amount=1e-4)["enabled"] is True
+
+
+def test_sync_source_is_unverified_when_firmware_omits_it(connected) -> None:
+    driver, backend = connected
+    # Firmware 1.01.01.30R1 answers C1:SYNC? without the documented TYPE field.
+    backend.responses["C1:SYNC?"] = "C1:SYNC OFF"
+    result = driver.configure_sync(True, 2)
+    assert result["enabled"] is True
+    assert result["source_verified_by_readback"] is False
+    assert "unverified" in result
