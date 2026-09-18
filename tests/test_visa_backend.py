@@ -129,7 +129,7 @@ def test_binary_query_temporarily_disables_text_read_termination() -> None:
             assert command == "CURVE?"
             assert self.read_termination is None
 
-        def read_raw(self) -> bytes:
+        def read_raw(self, size=None) -> bytes:
             assert self.read_termination is None
             return b"#14\x01\n\x02\x03"
 
@@ -141,21 +141,46 @@ def test_binary_query_temporarily_disables_text_read_termination() -> None:
     assert backend.instrument().read_termination == "\n"
 
 
-def test_binary_query_keeps_the_socket_terminator() -> None:
+def test_binary_query_reads_a_socket_block_in_small_steps() -> None:
     class Instrument:
         read_termination = "\n"
+
+        def __init__(self) -> None:
+            self.sizes: list[int | None] = []
 
         def write(self, command: str) -> None:
             assert command == "WVDT? USER,lanchk"
             assert self.read_termination == "\n"
 
-        def read_raw(self) -> bytes:
-            assert self.read_termination == "\n"
-            return b"WVNM, lanchk, LENGTH, 2B, TYPE, 6, WAVEDATA,\x01\x80\n"
+        def read_raw(self, size=None) -> bytes:
+            self.sizes.append(size)
+            if len(self.sizes) == 1:
+                return b"A" * 4096
+            return b"tail\n"
+
+    instrument = Instrument()
+    backend = VisaBackend()
+    backend._instrument = instrument
+    backend._resource_name = "TCPIP0::10.11.9.230::5025::SOCKET"
+
+    payload = backend.query_raw("WVDT? USER,lanchk")
+    assert payload == b"A" * 4096 + b"tail\n"
+    assert instrument.sizes == [4096, 4096]
+    assert backend.instrument().read_termination == "\n"
+
+
+def test_socket_block_read_honours_the_size_limit() -> None:
+    class Instrument:
+        read_termination = "\n"
+
+        def write(self, command: str) -> None:
+            return None
+
+        def read_raw(self, size=None) -> bytes:
+            return b"B" * int(size)
 
     backend = VisaBackend()
     backend._instrument = Instrument()
     backend._resource_name = "TCPIP0::10.11.9.230::5025::SOCKET"
 
-    assert backend.query_raw("WVDT? USER,lanchk").endswith(b"\x01\x80\n")
-    assert backend.instrument().read_termination == "\n"
+    assert len(backend.query_raw("X?", size=8192)) == 8192

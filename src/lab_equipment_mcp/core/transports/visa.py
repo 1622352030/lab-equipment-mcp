@@ -8,6 +8,13 @@ from typing import Any
 from ..errors import ScopeError, ScopeNotConnectedError
 from ..interfaces import InterfaceType, SessionConfig, detect_interface_type
 
+# The guide's own examples set chunk_size to 40 KiB (X series) or 24 MiB (digital);
+# 128 KiB covers a full 16384-point waveform plus its ASCII header.
+_BINARY_READ_SIZE = 131_072
+# The socket example loops on recv(4096). Large single requests over a raw socket were
+# observed to take the instrument's socket service down, so sockets read in small steps.
+_SOCKET_READ_CHUNK = 4096
+
 
 @dataclass(frozen=True)
 class VisaResource:
@@ -218,7 +225,7 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"SCPI waveform query failed: {exc}") from exc
 
-    def query_raw(self, command: str) -> bytes:
+    def query_raw(self, command: str, size: int = _BINARY_READ_SIZE) -> bytes:
         with self._lock:
             instrument = self.instrument()
             previous_termination = instrument.read_termination
@@ -230,8 +237,30 @@ class VisaBackend:
                 if self.interface_type is not InterfaceType.LAN_SOCKET:
                     instrument.read_termination = None
                 instrument.write(command)
-                return bytes(instrument.read_raw())
+                if self.interface_type is InterfaceType.LAN_SOCKET:
+                    return self._read_socket_block(instrument, size)
+                return bytes(instrument.read_raw(size))
             except Exception as exc:
                 raise ScopeError(f"SCPI binary query failed: {exc}") from exc
             finally:
                 instrument.read_termination = previous_termination
+
+    @staticmethod
+    def _read_socket_block(instrument: Any, limit: int) -> bytes:
+        """Read a raw-socket reply in fixed-size steps.
+
+        The programming guide's socket sample loops on ``recv(4096)``. Requesting a large
+        block from VISA in one call terminated the instrument's socket service on the
+        acceptance unit, so the reply is accumulated in small reads instead.
+        """
+        chunks: list[bytes] = []
+        total = 0
+        while total < limit:
+            chunk = bytes(instrument.read_raw(_SOCKET_READ_CHUNK))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if chunk.endswith(b"\n"):
+                break
+        return b"".join(chunks)
