@@ -139,3 +139,23 @@ def test_binary_query_temporarily_disables_text_read_termination() -> None:
 
     assert backend.query_raw("CURVE?") == b"#14\x01\n\x02\x03"
     assert backend.instrument().read_termination == "\n"
+
+
+def test_binary_query_keeps_the_socket_terminator() -> None:
+    class Instrument:
+        read_termination = "\n"
+
+        def write(self, command: str) -> None:
+            assert command == "WVDT? USER,lanchk"
+            assert self.read_termination == "\n"
+
+        def read_raw(self) -> bytes:
+            assert self.read_termination == "\n"
+            return b"WVNM, lanchk, LENGTH, 2B, TYPE, 6, WAVEDATA,\x01\x80\n"
+
+    backend = VisaBackend()
+    backend._instrument = Instrument()
+    backend._resource_name = "TCPIP0::10.11.9.230::5025::SOCKET"
+
+    assert backend.query_raw("WVDT? USER,lanchk").endswith(b"\x01\x80\n")
+    assert backend.instrument().read_termination == "\n"

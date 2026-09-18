@@ -223,9 +223,12 @@ class VisaBackend:
             instrument = self.instrument()
             previous_termination = instrument.read_termination
             try:
-                # Text terminators can occur inside arbitrary binary payloads and
-                # cause PyVISA to return a truncated IEEE block.
-                instrument.read_termination = None
+                # A raw TCP socket has no message framing, so the terminator is the only
+                # end-of-message signal VISA can use; clearing it makes viRead wait for the
+                # timeout instead. Framed transports (USBTMC, GPIB, VXI-11) keep the
+                # terminator cleared because a payload byte can equal it.
+                if self.interface_type is not InterfaceType.LAN_SOCKET:
+                    instrument.read_termination = None
                 instrument.write(command)
                 return bytes(instrument.read_raw())
             except Exception as exc:
