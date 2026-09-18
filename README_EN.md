@@ -21,7 +21,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | GW Instek | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | Control, modulation, sweep, and ARB closed-loop tested |
 | Agilent/Keysight | [33500B Series](docs/agilent/33500B-Series.md) | USBTMC, LAN VXI-11/socket, GPIB | 33509B USB tested; LAN/GPIB implementation ready for acceptance |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
-| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested |
+| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested; LAN VXI-11 and socket 5025 identity, read-back writes, and binary ARB round trip hardware-tested |
 | Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
@@ -353,15 +353,20 @@ sanitization are blocked. See the [33500B guide](docs/agilent/33500B-Series.md).
 
 The Siglent driver provides independent CH1/CH2 control, output load/polarity, standard
 waveforms and pulse details, modulation, sweep, burst, guarded manual triggers, Aux In/Out
-Sync, channel copy, ARB selection, and binary ARB upload up to 16 kpts. It models USBTMC,
-LAN VXI-11, LAN socket 5025, and optional GPIB separately.
+Sync, channel copy, ARB selection, and binary ARB upload up to 16 kpts with read-back. It
+models USBTMC, LAN VXI-11, LAN socket 5025, and optional GPIB separately.
 
 USB identity, dual-channel waveforms, modulation, sweep, burst, and ARB are closed-loop
 tested with a DPO2012B. A second acceptance run used the Agilent/Keysight DSO-X 2012A
 as a two-channel receiver: SDG CH1 1 kHz/0.5 Vpp measured 1000.0 Hz/0.52 Vpp, and
 SDG CH2 2 kHz/0.5 Vpp measured 2000.0 Hz/0.52 Vpp; receiver waveform samples measured
-0.518 Vpp and 0.515 Vpp. Sync/Aux, external modulation/triggering, LAN, and GPIB remain
-untested. See the
+0.518 Vpp and 0.515 Vpp.
+
+LAN is tested on firmware 1.01.01.30R1 over both VXI-11 and socket 5025: identity, a write
+with read-back, a 50-ohm load change, and a four-point user ARB upload whose read-back
+samples matched the uploaded values exactly. VISA does not enumerate LAN instruments, so
+the address must be passed in; `sdg1062x_connect` accepts a bare IP for VXI-11 or `IP:5025`
+for the socket. Sync/Aux, external modulation/triggering, and GPIB remain untested. See the
 [SDG1000X guide](docs/siglent/SDG1000X.md).
 
 ## Agilent/Keysight DSO-X 2012A Tools

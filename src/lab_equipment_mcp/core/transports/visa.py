@@ -8,6 +8,13 @@ from typing import Any
 from ..errors import ScopeError, ScopeNotConnectedError
 from ..interfaces import InterfaceType, SessionConfig, detect_interface_type
 
+# The guide's own examples set chunk_size to 40 KiB (X series) or 24 MiB (digital);
+# 128 KiB covers a full 16384-point waveform plus its ASCII header.
+_BINARY_READ_SIZE = 131_072
+# The socket example loops on recv(4096). Large single requests over a raw socket were
+# observed to take the instrument's socket service down, so sockets read in small steps.
+_SOCKET_READ_CHUNK = 4096
+
 
 @dataclass(frozen=True)
 class VisaResource:
@@ -218,17 +225,53 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"SCPI waveform query failed: {exc}") from exc
 
-    def query_raw(self, command: str) -> bytes:
+    def query_raw(self, command: str, size: int | None = None) -> bytes:
         with self._lock:
             instrument = self.instrument()
             previous_termination = instrument.read_termination
             try:
-                # Text terminators can occur inside arbitrary binary payloads and
-                # cause PyVISA to return a truncated IEEE block.
-                instrument.read_termination = None
+                # A text terminator can occur inside an arbitrary binary payload and make
+                # PyVISA return a truncated block, so framing transports clear it. A raw
+                # socket keeps it: with no framing at all, VISA waits for the full request
+                # length and then discards the data when it times out. The socket path
+                # therefore reads in steps and the caller validates the declared length.
+                if self.interface_type is not InterfaceType.LAN_SOCKET:
+                    instrument.read_termination = None
                 instrument.write(command)
-                return bytes(instrument.read_raw())
+                if self.interface_type is InterfaceType.LAN_SOCKET:
+                    return self._read_socket_block(instrument, size or _BINARY_READ_SIZE)
+                # Callers that need a larger block ask for it explicitly. Keeping the default
+                # as the library's own chunk size preserves the behaviour every other driver
+                # was validated against.
+                if size is None:
+                    return bytes(instrument.read_raw())
+                return bytes(instrument.read_raw(size))
             except Exception as exc:
                 raise ScopeError(f"SCPI binary query failed: {exc}") from exc
             finally:
                 instrument.read_termination = previous_termination
+
+    @staticmethod
+    def _read_socket_block(instrument: Any, limit: int) -> bytes:
+        """Read a raw-socket reply in fixed-size steps.
+
+        The guide's socket sample loops on ``recv(4096)``, which is also the only shape
+        VISA handles here: the terminator ends each step, and a read that yields nothing
+        marks the end of the reply. A block whose payload contains the terminator byte
+        will stop early; callers detect that by comparing against the device's declared
+        length, so the result is an explicit error rather than a silent truncation.
+        """
+        chunks: list[bytes] = []
+        total = 0
+        while total < limit:
+            try:
+                chunk = bytes(instrument.read_raw(_SOCKET_READ_CHUNK))
+            except Exception:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if chunk.endswith(b"\n"):
+                break
+        return b"".join(chunks)

@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import platform
 import re
+import socket
 import subprocess
+from collections.abc import Sequence
 from typing import Any
 
 from ...core.host_diagnostics import find_visa_libraries
@@ -12,6 +14,8 @@ from ...core.transports.visa import VisaBackend
 
 SIGLENT_USB_VENDOR_ID = "F4EC"
 SDG1062X_USB_PRODUCT_ID = "1103"
+DEFAULT_SCPI_SOCKET_PORT = 5025
+_LAN_PROBE_TIMEOUT_S = 2.0
 
 
 def windows_sdg_devices() -> list[dict[str, Any]]:
@@ -58,7 +62,75 @@ def windows_sdg_devices() -> list[dict[str, Any]]:
     return devices
 
 
-def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
+def local_ipv4_addresses() -> list[str]:
+    """Return usable local IPv4 addresses so a LAN subnet mismatch is visible."""
+    addresses: set[str] = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addresses.add(info[4][0])
+    except OSError:
+        return []
+    return sorted(address for address in addresses if not address.startswith("127."))
+
+
+def redact_identity(response: str) -> str:
+    """Replace the third SCPI identity field, which carries the serial number."""
+    fields = [field.strip() for field in response.split(",")]
+    if len(fields) < 3:
+        return "<unexpected identity shape>"
+    fields[2] = "<redacted>"
+    return ",".join(fields)
+
+
+def probe_lan_socket(
+    host: str,
+    port: int = DEFAULT_SCPI_SOCKET_PORT,
+    timeout_s: float = _LAN_PROBE_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Probe one LAN instrument socket with a read-only ``*IDN?``.
+
+    The probe is confined to the single address the caller names, so it never sweeps a
+    subnet. Only ``*IDN?`` is sent, and the serial number is redacted before returning.
+    """
+    result: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "reachable": False,
+        "identity": None,
+        "error": None,
+    }
+    chunks: list[bytes] = []
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s) as connection:
+            connection.settimeout(timeout_s)
+            connection.sendall(b"*IDN?\n")
+            while True:
+                try:
+                    chunk = connection.recv(256)
+                except TimeoutError:
+                    break
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if b"\n" in chunk:
+                    break
+    except OSError as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        return result
+
+    text = b"".join(chunks).decode("ascii", errors="replace").strip()
+    if not text:
+        result["error"] = "Socket opened but no identity was returned"
+        return result
+    result["reachable"] = True
+    result["identity"] = redact_identity(text)
+    return result
+
+
+def diagnose_host(
+    backend: VisaBackend | None = None,
+    lan_hosts: Sequence[str] | None = None,
+) -> dict[str, Any]:
     devices = windows_sdg_devices()
     visa_libraries = find_visa_libraries()
     pyvisa_installed = importlib.util.find_spec("pyvisa") is not None
@@ -77,8 +149,10 @@ def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
         except Exception as exc:
             visa_error = str(exc)
 
+    lan_probes = [probe_lan_socket(host) for host in lan_hosts or ()]
+
     recommendations: list[str] = []
-    if not devices:
+    if not devices and not lan_probes:
         recommendations.append(
             "Connect the rear USB Device Type-B port directly to the computer and power on the SDG."
         )
@@ -96,16 +170,32 @@ def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
             "The USB device is present but no identified Siglent VISA resource is available; "
             "close EasyWave/NI-MAX sessions and reconnect the USB cable."
         )
+    if lan_probes and not any(probe["reachable"] for probe in lan_probes):
+        recommendations.append(
+            "No LAN instrument answered the read-only socket probe. Confirm the address, the "
+            "subnet mask on both ends, and that the instrument LAN port is enabled."
+        )
+    if not lan_probes and not devices:
+        recommendations.append(
+            "For LAN control pass the instrument address; VISA does not enumerate LAN instruments "
+            "the way it enumerates USB, for example lan_hosts=['10.0.0.5']."
+        )
 
-    ready = bool(devices and resources and visa_libraries and pyvisa_installed)
-    ready = ready and not any(device["driver_problem"] for device in devices)
+    usb_ready = bool(devices and resources and visa_libraries and pyvisa_installed)
+    usb_ready = usb_ready and not any(device["driver_problem"] for device in devices)
+    lan_ready = any(probe["reachable"] for probe in lan_probes)
+    ready = bool((usb_ready or lan_ready) and visa_libraries and pyvisa_installed)
     return {
         "platform": platform.platform(),
         "pyvisa_installed": pyvisa_installed,
         "visa_libraries": visa_libraries,
         "siglent_usb_devices": devices,
         "identified_resources": resources,
+        "local_ipv4_addresses": local_ipv4_addresses(),
+        "lan_probes": lan_probes,
         "visa_error": visa_error,
+        "usb_ready": usb_ready,
+        "lan_ready": lan_ready,
         "ready": ready,
         "recommendations": recommendations,
     }
