@@ -208,9 +208,14 @@ def agilentdsox2012a_write_binary(
 
 
 @mcp.tool(name="sdg1062x_diagnose_setup", annotations=READ_ONLY)
-def sdg1062x_diagnose_setup() -> dict[str, Any]:
-    """Check Siglent SDG USB enumeration, VISA resources, and PyVISA readiness."""
-    return diagnose_sdg1062x_host(discovery_backend)
+def sdg1062x_diagnose_setup(lan_hosts: list[str] | None = None) -> dict[str, Any]:
+    """Check Siglent SDG USB enumeration, VISA resources, and LAN reachability.
+
+    VISA enumerates USB instruments but not LAN instruments, so pass each LAN address
+    explicitly. Every address is probed with a read-only *IDN? on the documented SCPI
+    socket, and no subnet is swept.
+    """
+    return diagnose_sdg1062x_host(discovery_backend, lan_hosts=lan_hosts)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -268,7 +273,11 @@ def agilent33500b_connect(resource: str | None = None, timeout_ms: int = 5000) -
 
 @mcp.tool(name="sdg1062x_connect", annotations=STATE_CHANGE)
 def sdg1062x_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, str]:
-    """Connect to a Siglent SDG1032X/SDG1062X over a declared VISA interface."""
+    """Connect to a Siglent SDG1032X/SDG1062X over a declared VISA interface.
+
+    A bare LAN address such as ``10.11.9.230`` selects VXI-11, ``10.11.9.230:5025``
+    selects the raw SCPI socket, and a complete VISA resource is used unchanged.
+    """
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
     identity = sdg1062x.connect(resource, timeout_ms)
@@ -427,10 +436,11 @@ def agilent33500b_identify() -> dict[str, str]:
 
 @mcp.tool(name="sdg1062x_identify", annotations=READ_ONLY)
 def sdg1062x_identify() -> dict[str, str]:
-    """Return the connected Siglent SDG identity and VISA resource."""
+    """Return the connected Siglent SDG identity and VISA resource with the serial redacted."""
+    identity = sdg1062x._require_connected()
     return {
         "resource": sdg1062x_backend.resource_name or "",
-        "identity": sdg1062x_backend.query("*IDN?"),
+        "identity": identity.redacted(),
     }
 
 
@@ -627,6 +637,19 @@ def sdg1062x_upload_arbitrary_waveform(
         offset_volts,
         phase_degrees,
     )
+
+
+@mcp.tool(name="sdg1062x_read_arbitrary_waveform", annotations=READ_ONLY)
+def sdg1062x_read_arbitrary_waveform(name: str, max_samples: int = 1024) -> dict[str, Any]:
+    """Read one stored user ARB waveform back over the active transport.
+
+    The instrument answers with a binary 16-bit little-endian block, so this doubles as
+    the binary transfer check for the active interface. Use max_samples to bound the
+    returned sample list.
+    """
+    if not 1 <= max_samples <= 16_384:
+        raise ValueError("max_samples must be between 1 and 16384")
+    return sdg1062x.read_arbitrary_waveform(name, max_samples=max_samples)
 
 
 @mcp.tool(name="sdg1062x_query_scpi", annotations=READ_ONLY)

@@ -9,6 +9,7 @@ from typing import Any
 
 from ...core.errors import ScopeError
 from ...core.interfaces import DeviceProfile, InterfaceSpec, InterfaceType, SessionConfig
+from ...core.resources import normalize_visa_resource
 from ...core.safety import validate_scpi
 from ...core.transports.visa import VisaBackend, VisaResource
 
@@ -71,6 +72,10 @@ class Identity:
     model: str
     serial: str
     firmware: str
+
+    def redacted(self) -> str:
+        """Return the identity with the serial number replaced."""
+        return f"{self.manufacturer},{self.model},<redacted>,{self.firmware}"
 
 
 def parse_identity(response: str) -> Identity:
@@ -149,6 +154,39 @@ def parse_modulation_response(response: str) -> dict[str, str]:
     return result
 
 
+_WVDT_HEADER_RE = re.compile(
+    r"WVNM\s*,\s*(?P<name>[^,]*?)\s*,\s*LENGTH\s*,\s*(?P<length>\d+)\s*B\s*,"
+    r"\s*TYPE\s*,\s*(?P<type>\d+)",
+    re.I,
+)
+_WVDT_DATA_MARKER = b"WAVEDATA,"
+
+
+def parse_wvdt_response(raw: bytes) -> dict[str, Any]:
+    """Split a ``WVDT?`` reply into its ASCII header fields and 16-bit samples."""
+    marker_index = raw.find(_WVDT_DATA_MARKER)
+    if marker_index < 0:
+        raise ScopeError("WVDT response does not contain a WAVEDATA field")
+    header = raw[:marker_index].decode("ascii", errors="replace")
+    match = _WVDT_HEADER_RE.search(header)
+    if match is None:
+        raise ScopeError(f"Unable to parse the WVDT header: {header!r}")
+    length = int(match.group("length"))
+    if length % 2:
+        raise ScopeError("WVDT payload is not a whole number of 16-bit samples")
+    start = marker_index + len(_WVDT_DATA_MARKER)
+    payload = raw[start : start + length]
+    if len(payload) != length:
+        raise ScopeError("WVDT payload is shorter than the declared LENGTH")
+    return {
+        "name": match.group("name").strip(),
+        "length_bytes": length,
+        "data_type": int(match.group("type")),
+        "sample_count": length // 2,
+        "samples": list(struct.unpack(f"<{length // 2}h", payload)),
+    }
+
+
 class SDG1000X:
     profile = SIGLENT_SDG1000X_PROFILE
 
@@ -171,14 +209,16 @@ class SDG1000X:
             matches = self.find_resources()
             if not matches:
                 raise ScopeError(
-                    "No Siglent SDG1000X VISA resource found. Check rear USB Device/LAN/GPIB "
-                    "connectivity and the VISA runtime."
+                    "No Siglent SDG1000X VISA resource found. USB and GPIB instruments are "
+                    "enumerated automatically, but LAN instruments are not; pass the address "
+                    "directly, for example resource='10.11.9.230'."
                 )
             if len(matches) > 1:
                 names = ", ".join(item.resource for item in matches)
                 raise ScopeError(f"Multiple SDG1000X resources found; specify one: {names}")
             resource_name = matches[0].resource
 
+        resource_name = normalize_visa_resource(resource_name)
         interface = self.profile.interface_for_resource(resource_name)
         if interface is None:
             raise ScopeError(f"Unsupported SDG1000X interface: {resource_name}")
@@ -188,7 +228,7 @@ class SDG1000X:
         except Exception:
             self.backend.disconnect()
             raise
-        return identity_text
+        return self.identity.redacted()
 
     def _require_connected(self) -> Identity:
         if self.identity is None:
@@ -769,6 +809,27 @@ class SDG1000X:
             "binary_transfer": "16-bit signed little-endian",
             "verified_by_readback": True,
             "physical_output_verified": False,
+        }
+
+    def read_arbitrary_waveform(self, name: str, max_samples: int | None = None) -> dict[str, Any]:
+        """Read one stored user arbitrary waveform back over the active transport."""
+        self._require_connected()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", name):
+            raise ValueError("name must contain 1..32 safe filename characters")
+        if max_samples is not None and max_samples < 1:
+            raise ValueError("max_samples must be a positive integer or null")
+        parsed = parse_wvdt_response(self.backend.query_raw(f"WVDT? USER,{name}"))
+        samples = parsed["samples"]
+        truncated = max_samples is not None and len(samples) > max_samples
+        return {
+            "name": parsed["name"],
+            "sample_count": parsed["sample_count"],
+            "length_bytes": parsed["length_bytes"],
+            "data_type": parsed["data_type"],
+            "samples": samples[:max_samples] if truncated else samples,
+            "truncated": truncated,
+            "binary_transfer": "16-bit signed little-endian",
+            "verified_by_readback": True,
         }
 
     def query(self, command: str) -> str:

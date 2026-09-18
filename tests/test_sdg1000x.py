@@ -11,6 +11,7 @@ from lab_equipment_mcp.devices.siglent.sdg_1000x import (
     parse_identity,
     parse_modulation_response,
     parse_parameter_response,
+    parse_wvdt_response,
 )
 
 
@@ -21,6 +22,7 @@ class FakeBackend:
         self.connected_session = None
         self.writes: list[str] = []
         self.raw_writes: list[bytes] = []
+        self.raw_queries: list[str] = []
         self.responses = {
             "*IDN?": "Siglent Technologies,SDG1062X,SERIAL,1.01.01.30R1",
             "C1:OUTP?": "C1:OUTP OFF,LOAD,HZ,PLRT,NOR",
@@ -37,6 +39,10 @@ class FakeBackend:
             "C2:ARWV?": "C2:ARWV INDEX,2,NAME,StairUp",
             "C1:SYNC?": "C1:SYNC OFF,TYPE,CH1",
             "C2:SYNC?": "C2:SYNC OFF,TYPE,CH1",
+            "WVDT?": (
+                b"WVDT POS, /Local, WVNM, lanchk, LENGTH, 8B, TYPE, 6, WAVEDATA,"
+                b"\x01\x80\x00\xc0\x00@\xff\x7f\n"
+            ),
         }
 
     def list_resources(self, **kwargs):
@@ -60,6 +66,10 @@ class FakeBackend:
 
     def query(self, command):
         return self.responses[command]
+
+    def query_raw(self, command):
+        self.raw_queries.append(command)
+        return self.responses["WVDT?"]
 
     def write_raw(self, data):
         self.raw_writes.append(data)
@@ -273,3 +283,84 @@ def test_query_only_accepts_queries(connected) -> None:
     assert "SDG1062X" in driver.query("*IDN?")
     with pytest.raises(ValueError, match="must be a query"):
         driver.query("C1:BSWV FRQ,1000")
+
+
+def test_bare_lan_address_expands_to_vxi11() -> None:
+    backend = FakeBackend()
+    driver = SDG1000X(backend)
+    identity = driver.connect("10.11.9.230")
+    assert backend.resource_name == "TCPIP0::10.11.9.230::inst0::INSTR"
+    assert backend.interface_type is InterfaceType.LAN_VXI11
+    assert "<redacted>" in identity
+    assert "SERIAL" not in identity
+
+
+def test_lan_socket_address_selects_socket_session() -> None:
+    backend = FakeBackend()
+    driver = SDG1000X(backend)
+    driver.connect("10.11.9.230:5025")
+    assert backend.resource_name == "TCPIP0::10.11.9.230::5025::SOCKET"
+    assert backend.interface_type is InterfaceType.LAN_SOCKET
+    assert backend.connected_session is not None
+    assert backend.connected_session.read_termination == "\n"
+    assert backend.connected_session.write_termination == "\n"
+
+
+def test_complete_lan_resource_is_used_unchanged() -> None:
+    backend = FakeBackend()
+    driver = SDG1000X(backend)
+    driver.connect("TCPIP0::10.11.9.230::inst0::INSTR")
+    assert backend.resource_name == "TCPIP0::10.11.9.230::inst0::INSTR"
+    assert backend.interface_type is InterfaceType.LAN_VXI11
+
+
+def test_identity_redaction_replaces_only_the_serial_field() -> None:
+    identity = parse_identity("Siglent Technologies,SDG1062X,PRIVATE-SERIAL,1.01.01.30R1")
+    assert identity.redacted() == "Siglent Technologies,SDG1062X,<redacted>,1.01.01.30R1"
+
+
+def test_wvdt_response_is_split_into_header_and_samples() -> None:
+    raw = (
+        b"WVDT POS, /Local, WVNM, lanchk, LENGTH, 8B, TYPE, 6, WAVEDATA,"
+        b"\x01\x80\x00\xc0\x00@\xff\x7f\n"
+    )
+    parsed = parse_wvdt_response(raw)
+    assert parsed["name"] == "lanchk"
+    assert parsed["length_bytes"] == 8
+    assert parsed["data_type"] == 6
+    assert parsed["sample_count"] == 4
+    assert parsed["samples"] == [-32767, -16384, 16384, 32767]
+
+
+def test_wvdt_response_rejects_malformed_replies() -> None:
+    with pytest.raises(ScopeError, match="shorter"):
+        parse_wvdt_response(b"WVNM, x, LENGTH, 8B, TYPE, 6, WAVEDATA,\x01\x80")
+    with pytest.raises(ScopeError, match="WAVEDATA"):
+        parse_wvdt_response(b"WVNM, x, LENGTH, 8B, TYPE, 6")
+    with pytest.raises(ScopeError, match="whole number"):
+        parse_wvdt_response(b"WVNM, x, LENGTH, 3B, TYPE, 6, WAVEDATA,\x01\x02\x03")
+
+
+def test_read_arbitrary_waveform_round_trips_the_uploaded_points(connected) -> None:
+    driver, backend = connected
+    result = driver.read_arbitrary_waveform("lanchk")
+    assert backend.raw_queries == ["WVDT? USER,lanchk"]
+    assert result["samples"] == [-32767, -16384, 16384, 32767]
+    assert result["sample_count"] == 4
+    assert result["truncated"] is False
+
+
+def test_read_arbitrary_waveform_caps_returned_samples(connected) -> None:
+    driver, _ = connected
+    result = driver.read_arbitrary_waveform("lanchk", max_samples=2)
+    assert result["samples"] == [-32767, -16384]
+    assert result["sample_count"] == 4
+    assert result["truncated"] is True
+
+
+def test_read_arbitrary_waveform_rejects_unsafe_input(connected) -> None:
+    driver, _ = connected
+    with pytest.raises(ValueError, match="safe filename"):
+        driver.read_arbitrary_waveform("../etc/passwd")
+    with pytest.raises(ValueError, match="positive integer"):
+        driver.read_arbitrary_waveform("lanchk", max_samples=0)
