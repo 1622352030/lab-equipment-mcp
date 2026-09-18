@@ -174,6 +174,7 @@ def test_binary_query_reads_a_socket_block_in_small_steps() -> None:
 
         def write(self, command: str) -> None:
             assert command == "WVDT? USER,lanchk"
+            # A raw socket keeps the terminator: it is the only end-of-step signal VISA has.
             assert self.read_termination == "\n"
 
         def read_raw(self, size=None) -> bytes:

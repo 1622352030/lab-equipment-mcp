@@ -230,10 +230,11 @@ class VisaBackend:
             instrument = self.instrument()
             previous_termination = instrument.read_termination
             try:
-                # A raw TCP socket has no message framing, so the terminator is the only
-                # end-of-message signal VISA can use; clearing it makes viRead wait for the
-                # timeout instead. Framed transports (USBTMC, GPIB, VXI-11) keep the
-                # terminator cleared because a payload byte can equal it.
+                # A text terminator can occur inside an arbitrary binary payload and make
+                # PyVISA return a truncated block, so framing transports clear it. A raw
+                # socket keeps it: with no framing at all, VISA waits for the full request
+                # length and then discards the data when it times out. The socket path
+                # therefore reads in steps and the caller validates the declared length.
                 if self.interface_type is not InterfaceType.LAN_SOCKET:
                     instrument.read_termination = None
                 instrument.write(command)
@@ -254,14 +255,19 @@ class VisaBackend:
     def _read_socket_block(instrument: Any, limit: int) -> bytes:
         """Read a raw-socket reply in fixed-size steps.
 
-        The programming guide's socket sample loops on ``recv(4096)``. Requesting a large
-        block from VISA in one call terminated the instrument's socket service on the
-        acceptance unit, so the reply is accumulated in small reads instead.
+        The guide's socket sample loops on ``recv(4096)``, which is also the only shape
+        VISA handles here: the terminator ends each step, and a read that yields nothing
+        marks the end of the reply. A block whose payload contains the terminator byte
+        will stop early; callers detect that by comparing against the device's declared
+        length, so the result is an explicit error rather than a silent truncation.
         """
         chunks: list[bytes] = []
         total = 0
         while total < limit:
-            chunk = bytes(instrument.read_raw(_SOCKET_READ_CHUNK))
+            try:
+                chunk = bytes(instrument.read_raw(_SOCKET_READ_CHUNK))
+            except Exception:
+                break
             if not chunk:
                 break
             chunks.append(chunk)
