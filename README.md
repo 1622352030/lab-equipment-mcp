@@ -20,7 +20,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | GW Instek（固纬） | [AFG-2125](docs/gw_instek/AFG-2125.md) | Mini USB-B / USB CDC / VISA ASRL | 控制、调制、扫频和任意波已通过真实设备闭环验证 |
 | Agilent/Keysight | [33500B 系列](docs/agilent/33500B-Series.md) | USBTMC、LAN VXI-11/Socket、GPIB | 33509B USB 已测试；LAN/GPIB 已完成实现并预留验收路径 |
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
-| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X USB 双通道波形、模式和 ARB 已完成示波器闭环验收 |
+| Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X 的 USB 双通道波形、模式和 ARB 已完成示波器闭环验收；LAN VXI-11 与 Socket 5025 已完成身份、读写回读和二进制 ARB 往返验证 |
 | Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
@@ -395,13 +395,21 @@ USBTMC/VISA，不是串口；LAN VXI-11、LAN SCPI Socket 5025 和选配 GPIB �
 接口建模。SDG1062X 已通过 DPO2012B 双通道物理闭环验收，并使用 Agilent/Keysight
 DSO-X 2012A 作为第二台双通道接收示波器完成闭环：CH1 设为 1 kHz/0.5 Vpp，实测
 1000.0 Hz/0.52 Vpp；CH2 设为 2 kHz/0.5 Vpp，实测 2000.0 Hz/0.52 Vpp；接收波形
-样本 Vpp 分别为 0.518 V 和 0.515 V。同步、外部调制/触发、LAN 和 GPIB 仍未实测。
+样本 Vpp 分别为 0.518 V 和 0.515 V。
+
+LAN 已在固件 1.01.01.30R1 上完成实测：VXI-11 和 Socket 5025 两条通道都能读取身份、
+写入并回读波形参数、切换 50 Ω 负载，并完成 4 点用户任意波的上传与读回比对，读回的
+16 位样本与上传值逐点一致。VISA 不会像枚举 USB 那样列出 LAN 仪器，因此必须把地址
+显式传入；连接时可以直接给 IP（走 VXI-11）或 `IP:5025`（走 Socket）。同步、外部
+调制/触发和 GPIB 仍未实测。
 
 - `sdg1062x_diagnose_setup`：检查 Siglent USB 枚举、VISA Runtime、PyVISA 和可识别
-  的 SDG1000X 资源
+  的 SDG1000X 资源；传入 `lan_hosts` 时对指定 LAN 地址做只读 `*IDN?` 探测
 - `sdg1062x_connect`：自动发现或连接指定 USBTMC、LAN 或 GPIB VISA 地址，并验证
-  SDG1032X/SDG1062X 身份
-- `sdg1062x_identify`、`sdg1062x_disconnect`：单独识别或断开 Siglent SDG
+  SDG1032X/SDG1062X 身份；LAN 可直接传 `10.0.0.230`（VXI-11）或 `10.0.0.230:5025`
+  （Socket），也可传完整 VISA 资源
+- `sdg1062x_identify`、`sdg1062x_disconnect`：单独识别或断开 Siglent SDG，身份返回
+  中的序列号已脱敏
 - `sdg1062x_get_capabilities`：读取通道数、最大频率、采样率、垂直分辨率、ARB点数和
   支持接口
 - `sdg1062x_get_settings`：按通道读取输出、基础波形、调制、Sweep、Burst、ARB 和
@@ -420,6 +428,8 @@ DSO-X 2012A 作为第二台双通道接收示波器完成闭环：CH1 设为 1 k
 - `sdg1062x_select_arbitrary_waveform`：选择内建 ARB 编号或用户任意波名称
 - `sdg1062x_upload_arbitrary_waveform`：上传 2–16,384 个 `-1..1` 归一化点，使用
   16位小端二进制传输，并设置频率、幅度、偏置和相位
+- `sdg1062x_read_arbitrary_waveform`：读回已存用户任意波并解析 16 位小端样本，用于
+  校验二进制传输，可用 `max_samples` 限制返回样本数
 - `sdg1062x_set_output`：按通道自由关闭输出；开启时必须传入 `confirm_enable=true`
 - `sdg1062x_query_scpi`、`sdg1062x_write_scpi`：受保护的通用 SCPI 查询和设置接口
 
