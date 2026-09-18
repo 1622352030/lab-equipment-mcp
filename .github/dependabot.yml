@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    ignore:
+      # mcp 2.x renames FastMCP to MCPServer. This server imports
+      # `mcp.server.fastmcp` and fails to start under 2.x because uvx resolves
+      # dependencies without uv.lock, so a major bump breaks every installed
+      # MCP session. Remove this rule only after migrating the code to the v2 API.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
