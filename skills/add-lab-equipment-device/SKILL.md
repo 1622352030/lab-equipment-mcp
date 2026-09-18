@@ -10,6 +10,28 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
 For recurring failure patterns from the AFG-2125 implementation, read
 [lessons-learned.md](references/lessons-learned.md) before coding.
 
+## Stage gates
+
+Four checkpoints each require an artefact before the next phase starts. The workflow below says
+what to do; the gates make each prerequisite provable rather than assumed. Skipping a gate is a
+failed run even when the code works, and a gate is passed by producing its artefact, never by
+stating that the work was done.
+
+| Gate | Before | Required artefact | Reviewed by |
+| --- | --- | --- | --- |
+| G1 Manual evidence card | writing any code | interface differences and model restrictions, each with a page number, read from rendered pages | user glance |
+| G2 Blast-radius list | touching `core/` or any shared code | every caller, its transport, whether it can be verified now, and the rollback if not | user |
+| G3 Coverage matrix | claiming an interface is "tested" | feature group by interface, with unrun cells marked unverified | self |
+| G4 Change authorisation | changing host network, device state, or enabling output | what changes, what it affects, how to revert | user |
+
+Templates, pass conditions, and a worked G1 example: [gates.md](references/gates.md).
+
+These gates exist because three failures recurred while adding LAN support to the SDG1062X:
+reading the manual as extracted text only (missing a unit and availability marks that appear
+only in rendered tables), widening a shared read path in a way that also changed two unrelated
+oscilloscopes, and reporting a sampled subset as a tested interface. All three were caught by
+the user, not by self-review — which is why the artefacts, not the intentions, are the gate.
+
 ## Workflow
 
 1. Inspect the repository, `README.md`, `src/lab_equipment_mcp/core/`, existing device drivers,
@@ -19,6 +41,7 @@ For recurring failure patterns from the AFG-2125 implementation, read
    commands, identity response, termination rules, data formats, and safety restrictions. For PDFs,
    inspect the rendered command-tree and waveform figures as well as extracted text; record exact
    page numbers and distinguish optional bracket notation from literal command characters.
+   Produce the G1 evidence card from this step; do not start coding without it.
 3. Confirm with the user which physical interface is connected now. Do not infer USBTMC from a USB
    connector alone; distinguish USB host/device, USBTMC, virtual COM, RS-232, LAN VXI-11, LAN raw
    socket, HiSLIP, GPIB, and vendor-specific transports.
@@ -39,7 +62,8 @@ For recurring failure patterns from the AFG-2125 implementation, read
    but must not develop on `main`.
 8. Implement shared transport behavior in `core/` only when multiple devices can reuse it. Put
    vendor/model identity, commands, ranges, response parsing, and quirks under
-   `devices/<vendor>/<model>.py` or a model package.
+   `devices/<vendor>/<model>.py` or a model package. Any change to shared code requires the G2
+   blast-radius list first, including callers that cannot be exercised right now.
 9. Prefix MCP tool names with the model or family. Mark read-only and state-changing tools with MCP
    annotations. Block reset, calibration, firmware, file deletion, output-enable, and other risky
    operations by default unless the project explicitly defines a guarded workflow. For every
@@ -58,10 +82,12 @@ For recurring failure patterns from the AFG-2125 implementation, read
     physical receiver MCP (oscilloscope, counter, load, or analyzer) for closed-loop acceptance;
     if no usable receiver MCP is available, ask the user to observe the panel/connected instrument
     and record the observation as user-observed, not agent-measured. SCPI read-back alone remains
-    lower-confidence. Restore the original safe state in a `finally` path.
+    lower-confidence. Restore the original safe state in a `finally` path. Produce the G3 coverage
+    matrix before writing the word "tested" anywhere.
 13. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
     the owner's repository and open/prepare a pull request. Report untested interfaces and residual
-    risks explicitly.
+    risks explicitly. Every host or instrument change made along the way needed G4 authorisation
+    first; list anything that was changed outside the repository and how it was reverted.
 
 ## Decision Rules
 
