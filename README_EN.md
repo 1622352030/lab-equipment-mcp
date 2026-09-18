@@ -201,6 +201,99 @@ $uv = (Get-Command uv).Source
 codex mcp add lab-equipment -- $uv --directory $PWD run start-lab-equipment-mcp
 ```
 
+## Install in DeepSeek Harness
+
+DSH connects to this service through the official MCP client plugin. With `dsh-mcp-panel`
+installed you can add, edit, and remove servers from the panel instead of writing YAML.
+
+### Panel steps
+
+1. Open **Settings → Plugins → MCP**
+2. Click **Add** to open the "Add MCP server" form
+3. Fill the form as below
+4. Click **Generate patch fragment** and review it
+5. Click **Copy fragment** to paste it yourself, or **Write to profile** → **Confirm write**
+   (writes go through the approval channel and the patch file is backed up first)
+6. **Start a new task**; the tools appear only after that
+
+### Field values
+
+| Form field | Local clone | Remote Git (no clone needed) |
+| --- | --- | --- |
+| serverName (namespace) | `lab` | `lab` |
+| transport | `stdio` | `stdio` |
+| command | absolute path to `uv.exe` | absolute path to `uvx.exe` |
+| args (one argument per line) | see below | see below |
+| cwd (optional) | leave empty | leave empty |
+| env | leave empty | leave empty |
+| toolCallTimeoutMs | leave empty | leave empty |
+| auto reconnect | leave checked | leave checked |
+
+`serverName` becomes the tool prefix: with `lab`, tools are named `mcp__lab__sdg1062x_connect`.
+
+**args for a local clone**, one argument per line:
+
+```text
+--directory
+C:/path/to/lab-equipment-mcp
+run
+start-lab-equipment-mcp
+```
+
+**args for the remote repository**:
+
+```text
+--from
+git+https://github.com/1622352030/lab-equipment-mcp.git@main
+start-lab-equipment-mcp
+```
+
+### Verify
+
+```text
+/mcp
+/mcp lab tools
+/mcp lab health
+```
+
+The first lists every server with connection status, tool count, and reconnect count; the
+second lists this service's `mcp__lab__*` tools; the third derives troubleshooting advice when
+a server will not connect. The settings panel also has a trial console for calling a tool with
+JSON arguments; its output stays in the panel and never enters model context.
+
+### After an update
+
+An open task caches its tool list, so newly added tools do not appear in it. Refresh the
+dependency cache and start a new task:
+
+```powershell
+$uvx = (Get-Command uvx).Source
+& $uvx --refresh --from git+https://github.com/1622352030/lab-equipment-mcp.git@main start-lab-equipment-mcp --help
+```
+
+### Without the panel
+
+The panel writes into the profile patch layer at `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`;
+appending the same entry by hand is equivalent:
+
+```yaml
+- insert:
+    - id: mcp-lab
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lab
+        transport: stdio
+        command: 'C:/Users/<you>/.local/bin/uv.exe'
+        args:
+          - '--directory'
+          - 'C:/path/to/lab-equipment-mcp'
+          - 'run'
+          - 'start-lab-equipment-mcp'
+```
+
+Removal is easier from the panel: its "Remove (disable)" appends an `- id:` entry with
+`disabled: true`, leaving the original line in place so it can be re-enabled.
+
 ## Update
 
 The registration runs the selected Git branch through `uvx`. Prefer `uvx --refresh`

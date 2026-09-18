@@ -197,6 +197,94 @@ $uv = (Get-Command uv).Source
 codex mcp add lab-equipment -- $uv --directory $PWD run start-lab-equipment-mcp
 ```
 
+## 安装到 DeepSeek Harness
+
+DSH 通过官方 MCP client 插件连接本服务。装了 `dsh-mcp-panel` 的话可以直接在面板里增删改，不用手写 YAML。
+
+### 面板操作
+
+1. 打开 **设置 → 插件 → MCP**
+2. 点 **添加**，弹出「添加 MCP 服务器」表单
+3. 按下表填写
+4. 点 **生成 patch 片段**，核对生成的片段
+5. 点 **复制片段** 自行粘贴，或点 **写入 profile** → **确认写入**
+   （写入走审批通道，落盘前自动备份 `cordis.patch.yml`）
+6. **新建一个任务**，工具才会出现在模型侧
+
+### 表单怎么填
+
+| 表单字段 | 本地源码 | 远程仓库（无需先 clone） |
+| --- | --- | --- |
+| serverName（命名空间） | `lab` | `lab` |
+| transport | `stdio` | `stdio` |
+| command | `uv.exe` 的绝对路径 | `uvx.exe` 的绝对路径 |
+| args（每行一个参数） | 见下方 | 见下方 |
+| cwd（可选） | 留空 | 留空 |
+| env（环境变量） | 留空 | 留空 |
+| toolCallTimeoutMs（每次调用超时） | 留空 | 留空 |
+| 自动重连 | 保持勾选 | 保持勾选 |
+
+`serverName` 决定工具前缀：填 `lab` 时工具名是 `mcp__lab__sdg1062x_connect` 这种形式。
+
+**args 栏（本地源码）**，每行一个参数：
+
+```text
+--directory
+C:/path/to/lab-equipment-mcp
+run
+start-lab-equipment-mcp
+```
+
+**args 栏（远程仓库）**：
+
+```text
+--from
+git+https://github.com/1622352030/lab-equipment-mcp.git@main
+start-lab-equipment-mcp
+```
+
+### 验证
+
+在会话里运行：
+
+```text
+/mcp
+/mcp lab tools
+/mcp lab health
+```
+
+第一条列出所有 server 的连接状态、工具数和重连次数；第二条列出本服务的全部 `mcp__lab__*` 工具；第三条在连不上时给出派生的排障建议。设置面板里还有「工具试用台」，可以选 server、选工具、填 JSON 参数直接试调，结果只显示在面板里、不进模型上下文。
+
+### 更新后让新工具生效
+
+已打开的任务会缓存工具列表，新增的工具不会自动出现。先刷新依赖缓存，再新建任务：
+
+```powershell
+$uvx = (Get-Command uvx).Source
+& $uvx --refresh --from git+https://github.com/1622352030/lab-equipment-mcp.git@main start-lab-equipment-mcp --help
+```
+
+### 不用面板时
+
+面板写入的就是 profile 的 patch 层文件 `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`，手工追加同样内容即可：
+
+```yaml
+- insert:
+    - id: mcp-lab
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lab
+        transport: stdio
+        command: 'C:/Users/<you>/.local/bin/uv.exe'
+        args:
+          - '--directory'
+          - 'C:/path/to/lab-equipment-mcp'
+          - 'run'
+          - 'start-lab-equipment-mcp'
+```
+
+删除用面板更省事：面板的「删除（停用）」是追加 `- id:` + `disabled: true` 覆盖，行会留在文件里，随时可以重新启用。
+
 ## 更新
 
 GitHub 安装方式通过 `uvx` 启动指定分支。优先使用 `uvx --refresh` 强制获取
