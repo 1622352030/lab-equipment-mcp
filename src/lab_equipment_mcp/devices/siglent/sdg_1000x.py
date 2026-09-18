@@ -160,6 +160,8 @@ _WVDT_HEADER_RE = re.compile(
     re.I,
 )
 _WVDT_DATA_MARKER = b"WAVEDATA,"
+# 16384 points is the model maximum: two bytes per point plus the ASCII header.
+_ARB_READ_SIZE = 131_072
 
 
 def parse_wvdt_response(raw: bytes) -> dict[str, Any]:
@@ -818,7 +820,9 @@ class SDG1000X:
             raise ValueError("name must contain 1..32 safe filename characters")
         if max_samples is not None and max_samples < 1:
             raise ValueError("max_samples must be a positive integer or null")
-        parsed = parse_wvdt_response(self.backend.query_raw(f"WVDT? USER,{name}"))
+        parsed = parse_wvdt_response(
+            self.backend.query_raw(f"WVDT? USER,{name}", size=_ARB_READ_SIZE)
+        )
         samples = parsed["samples"]
         truncated = max_samples is not None and len(samples) > max_samples
         return {

@@ -129,7 +129,7 @@ def test_binary_query_temporarily_disables_text_read_termination() -> None:
             assert command == "CURVE?"
             assert self.read_termination is None
 
-        def read_raw(self, size=None) -> bytes:
+        def read_raw(self) -> bytes:
             assert self.read_termination is None
             return b"#14\x01\n\x02\x03"
 
@@ -139,6 +139,30 @@ def test_binary_query_temporarily_disables_text_read_termination() -> None:
 
     assert backend.query_raw("CURVE?") == b"#14\x01\n\x02\x03"
     assert backend.instrument().read_termination == "\n"
+
+
+def test_binary_query_passes_an_explicit_size_only_when_asked() -> None:
+    class Instrument:
+        read_termination = "\n"
+
+        def __init__(self) -> None:
+            self.sizes: list[int | None] = []
+
+        def write(self, command: str) -> None:
+            return None
+
+        def read_raw(self, size=None) -> bytes:
+            self.sizes.append(size)
+            return b"#14ABCD"
+
+    instrument = Instrument()
+    backend = VisaBackend()
+    backend._instrument = instrument
+    backend._resource_name = "USB0::scope::INSTR"
+
+    backend.query_raw("CURVE?")
+    backend.query_raw("CURVE?", size=65536)
+    assert instrument.sizes == [None, 65536]
 
 
 def test_binary_query_reads_a_socket_block_in_small_steps() -> None:

@@ -225,7 +225,7 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"SCPI waveform query failed: {exc}") from exc
 
-    def query_raw(self, command: str, size: int = _BINARY_READ_SIZE) -> bytes:
+    def query_raw(self, command: str, size: int | None = None) -> bytes:
         with self._lock:
             instrument = self.instrument()
             previous_termination = instrument.read_termination
@@ -238,7 +238,12 @@ class VisaBackend:
                     instrument.read_termination = None
                 instrument.write(command)
                 if self.interface_type is InterfaceType.LAN_SOCKET:
-                    return self._read_socket_block(instrument, size)
+                    return self._read_socket_block(instrument, size or _BINARY_READ_SIZE)
+                # Callers that need a larger block ask for it explicitly. Keeping the default
+                # as the library's own chunk size preserves the behaviour every other driver
+                # was validated against.
+                if size is None:
+                    return bytes(instrument.read_raw())
                 return bytes(instrument.read_raw(size))
             except Exception as exc:
                 raise ScopeError(f"SCPI binary query failed: {exc}") from exc

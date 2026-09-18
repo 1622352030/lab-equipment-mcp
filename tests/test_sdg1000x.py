@@ -67,7 +67,7 @@ class FakeBackend:
     def query(self, command):
         return self.responses[command]
 
-    def query_raw(self, command):
+    def query_raw(self, command, size=None):
         self.raw_queries.append(command)
         return self.responses["WVDT?"]
 
