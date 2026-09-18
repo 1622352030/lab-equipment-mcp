@@ -519,9 +519,14 @@ class SDG1000X:
             raise ValueError("AM depth must be between 0 and 120 percent")
         if mode == "PM" and not 0 <= amount <= 360:
             raise ValueError("PM deviation must be between 0 and 360 degrees")
-        if mode in {"FM", "PWM", "FSK"} and (
-            not math.isfinite(amount) or amount < 0
-        ):
+        # The guide (3.7, parameter table) defines PWM DEVI as a pulse-width offset in
+        # seconds whose useful range depends on the carrier width, so a percentage-style
+        # amount is rejected by the instrument and the whole command is dropped.
+        if mode == "PWM" and (not math.isfinite(amount) or not 0 < amount <= 1.0):
+            raise ValueError(
+                "PWM deviation is a pulse-width offset in seconds and must be in (0, 1]"
+            )
+        if mode in {"FM", "FSK"} and (not math.isfinite(amount) or amount < 0):
             raise ValueError("amount must be non-negative and finite")
 
         self.set_mode_enabled(channel, "sweep", False)
@@ -568,9 +573,18 @@ class SDG1000X:
                 raise ScopeError("Modulation waveform read-back does not match the request")
         if amount_key is not None:
             actual_amount = parameters.get(amount_key)
-            if actual_amount is None or not math.isclose(
-                parse_number(actual_amount), amount, rel_tol=1e-6, abs_tol=1e-12
-            ):
+            if actual_amount is None:
+                raise ScopeError("Modulation amount was not reported by the instrument")
+            actual_value = parse_number(actual_amount)
+            # PWM's DEVI is a pulse-width offset that the instrument snaps to the carrier
+            # duty cycle (a 100 us request came back as 98.7 us, reported with an "S"
+            # suffix), so a positive reported value is the strongest check available.
+            matched = (
+                actual_value > 0
+                if mode == "PWM"
+                else math.isclose(actual_value, amount, rel_tol=1e-6, abs_tol=1e-12)
+            )
+            if not matched:
                 raise ScopeError("Modulation amount read-back does not match the request")
         if not enabled:
             self.set_mode_enabled(channel, "modulation", False)
@@ -706,17 +720,26 @@ class SDG1000X:
         self.backend.write(f"C1:SYNC {'ON' if enabled else 'OFF'}")
         response = self.backend.query("C1:SYNC?")
         state_match = re.search(r"\b(ON|OFF)\b", response, re.I)
-        source_match = re.search(r"\bTYPE\s*,\s*CH([12])\b", response, re.I)
         if not state_match or parse_on_off(state_match.group(1)) is not enabled:
             raise ScopeError("Sync state read-back does not match the request")
-        if enabled and (not source_match or int(source_match.group(1)) != source_channel):
-            raise ScopeError("Sync source read-back does not match the request")
-        return {
+        # Firmware 1.01.01.30R1 answers C1:SYNC? with the state only and omits the
+        # ",TYPE,CHn" field the programming guide documents, so the requested source
+        # cannot be confirmed on this unit.
+        source_match = re.search(r"\bTYPE\s*,\s*CH([12])\b", response, re.I)
+        source_verified = source_match is not None and int(source_match.group(1)) == source_channel
+        result: dict[str, Any] = {
             "enabled": enabled,
             "source_channel": source_channel,
             "response": response,
+            "source_verified_by_readback": source_verified,
             "verified_by_readback": True,
         }
+        if not source_verified:
+            result["unverified"] = (
+                "the instrument does not report the Sync source in C1:SYNC?, so the "
+                "requested source channel is unverified"
+            )
+        return result
 
     def copy_channel(self, source_channel: int, target_channel: int) -> dict[str, Any]:
         source_channel = self._channel(source_channel)
