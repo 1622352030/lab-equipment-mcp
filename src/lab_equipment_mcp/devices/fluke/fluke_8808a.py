@@ -169,10 +169,17 @@ COMPARE_RESULTS = {
     "PASS": "within limits",
 }
 
-# Manual 4-24 figure 4-4: command responses.
+# Manual 4-24 figure 4-4 documents the prompts as "=>", "?" and "!". Hardware
+# (firmware 1.1r D2.0, 2026-09-20) appends ">" to the error prompts and sends
+# them as the only reply, with no separate acknowledgement.
 RESPONSE_OK = "=>"
-RESPONSE_SYNTAX_ERROR = "?"
-RESPONSE_EXECUTION_ERROR = "!"
+RESPONSE_SYNTAX_ERROR = "?>"
+RESPONSE_EXECUTION_ERROR = "!>"
+ERROR_PROMPTS = (RESPONSE_SYNTAX_ERROR, RESPONSE_EXECUTION_ERROR)
+
+# Control-C is documented (4-22 table 4-15) as answering with one "=>"; hardware
+# sends two.
+CONTROL_C = "\x03"
 
 _IDN_RE = re.compile(r"^\s*([^,]+),([^,]+),([^,]+),([^,]+?)\s*$")
 _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
@@ -202,9 +209,9 @@ def parse_identity(response: str) -> Fluke8808AIdentity:
 
 
 def check_response(response: str, command: str) -> str:
-    """Validate the figure 4-4 response protocol.
+    """Validate a reply against the prompts captured from the instrument.
 
-    Returns the response when it is an acceptable one, so callers can chain.
+    Returns the response when it is acceptable, so callers can chain.
     """
     text = response.strip()
     if text == RESPONSE_SYNTAX_ERROR:
@@ -212,6 +219,15 @@ def check_response(response: str, command: str) -> str:
     if text == RESPONSE_EXECUTION_ERROR:
         raise ScopeError(f"Fluke 8808A reported a command execution error for {command!r}")
     return response
+
+
+def is_error_prompt(response: str) -> bool:
+    """True when the reply is an error prompt.
+
+    Hardware sends the error prompt as the whole reply, with no acknowledgement
+    after it, so the caller must not try to read a second message.
+    """
+    return response.strip() in ERROR_PROMPTS
 
 
 def parse_reading(text: str) -> dict[str, Any]:
@@ -402,15 +418,27 @@ class Fluke8808A:
         self.backend.write(command)
         if self._echo:
             self._discard_echo()
-        return self._read_acknowledgement(command)
+        response = self.backend.read()
+        if command == CONTROL_C:
+            # Hardware sends two acknowledgements for control-C; the manual
+            # (4-22 table 4-15) shows one. Read the second or it pollutes the
+            # next transaction.
+            self.backend.read()
+        return check_response(response, command)
 
     def _execute_query(self, command: str) -> str:
-        """Send a query: read the data message, then consume the acknowledgement."""
+        """Send a query: read the data message, then consume the acknowledgement.
+
+        An error prompt is the entire reply, so ``check_response`` is called on
+        it directly and no second read is attempted.
+        """
         self._require_connected()
         self.backend.write(command)
         if self._echo:
             self._discard_echo()
         data = self._strip_echo(command, self.backend.read())
+        if is_error_prompt(data):
+            return check_response(data, command)  # always raises
         self._read_acknowledgement(command)
         return data
 
@@ -799,8 +827,12 @@ class Fluke8808A:
         return {"serial": "REDACTED", "present": bool(raw), "length": len(raw)}
 
     def interrupt(self) -> dict[str, str]:
-        """``^C`` (control-C) - the manual documents a ``=>`` acknowledgement."""
-        response = self._command("\x03")
+        """``^C`` (control-C) - clears the instrument.
+
+        Hardware answers with two acknowledgements; the manual (4-22 table 4-15)
+        shows one.
+        """
+        response = self._execute(CONTROL_C)
         return {"response": response.strip()}
 
     # -- 4-23 table 4-17: remote/local -------------------------------------

@@ -6,14 +6,16 @@ firmware ``1.1r D2.0``):
 
     *IDN?    -> b'FLUKE, 8808A, 3294009, 1.1r D2.0\\r\\n'  then  b'=>\\r\\n'
     FUNC1?   -> b'VDC\\r\\n'                               then  b'=>\\r\\n'
-    RATE?    -> b'S\\r\\n'                                 then  b'=>\\r\\n'
     *CLS     -> b'=>\\r\\n'                                        (one reply)
-    VDC      -> b'=>\\r\\n'                                        (one reply)
+    BOGUS    -> b'?>\\r\\n'                                        (one reply)
+    RANGE 99 -> b'!>\\r\\n'                                        (one reply)
+    ^C       -> b'=>\\r\\n'                                then  b'=>\\r\\n'
 
-A query returns two messages (data, then acknowledgement); a non-query returns
-one. The acknowledgement is always last, and leaving it unread is what shifted
-every reply by one in the first hardware run -- see
-``test_consecutive_queries_do_not_shift``.
+A successful query returns two messages (data, then acknowledgement); a
+non-query returns one. **An error prompt is the whole reply** - there is no
+acknowledgement after it, so reading a second message times out. The manual's
+figure 4-4 shows the prompts as "?", "!" and a single reply for control-C;
+hardware appends ">" and answers control-C twice.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from lab_equipment_mcp.devices.fluke.fluke_8808a import (
     FLUKE_8808A_SESSION,
     Fluke8808A,
     check_response,
+    is_error_prompt,
     parse_identity,
     parse_reading,
 )
@@ -97,6 +100,10 @@ class FakeBackend:
 
     def write(self, command):
         self.writes.append(command)
+        if command == "\x03":
+            # Hardware answers control-C with two acknowledgements.
+            self.queue.extend([self.ack, self.ack])
+            return None
         if command not in self.responses:
             # A non-query command: the instrument answers with the ack alone.
             self.queue.append(self.ack)
@@ -105,6 +112,19 @@ class FakeBackend:
             self.queue.append(command)
         self.queue.append(self.responses[command])
         self.queue.append(self.ack)
+        return None
+
+
+class ErrorBackend(FakeBackend):
+    """Answers every command with an error prompt and nothing else."""
+
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self.prompt = prompt
+
+    def write(self, command):
+        self.writes.append(command)
+        self.queue.append(self.prompt)
         return None
 
 
@@ -212,28 +232,65 @@ def test_consecutive_queries_do_not_shift(driver) -> None:
 
 
 def test_syntax_error_reply_raises() -> None:
-    backend = FakeBackend(ack="?")
+    """Hardware answers a bad command with '?>' and nothing else."""
+    backend = ErrorBackend("?>")
     device = Fluke8808A(backend)  # type: ignore[arg-type]
+    device._identity = parse_identity("FLUKE, 8808A, 1, 1.0")
     with pytest.raises(ScopeError, match="syntax error"):
-        device.connect("ASRL11::INSTR")
+        device.get_function()
 
 
-def test_execution_error_reply_raises(driver) -> None:
-    device, backend = driver
-    backend.ack = "!"
+def test_execution_error_reply_raises() -> None:
+    """Hardware answers an out-of-range value with '!>' and nothing else."""
+    backend = ErrorBackend("!>")
+    device = Fluke8808A(backend)  # type: ignore[arg-type]
+    device._identity = parse_identity("FLUKE, 8808A, 1, 1.0")
     with pytest.raises(ScopeError, match="execution error"):
-        device.reset()
+        device.get_function()
+
+
+def test_error_prompt_is_the_whole_reply() -> None:
+    """Reading a second message after an error prompt must not be attempted."""
+    backend = ErrorBackend("!>")
+    device = Fluke8808A(backend)  # type: ignore[arg-type]
+    device._identity = parse_identity("FLUKE, 8808A, 1, 1.0")
+    with pytest.raises(ScopeError):
+        device.get_function()
+    assert backend.queue == []
+
+
+def test_error_prompt_on_a_non_query_raises() -> None:
+    backend = ErrorBackend("?>")
+    device = Fluke8808A(backend)  # type: ignore[arg-type]
+    device._identity = parse_identity("FLUKE, 8808A, 1, 1.0")
+    with pytest.raises(ScopeError, match="syntax error"):
+        device.clear_status()
+
+
+def test_control_c_consumes_both_acknowledgements(driver) -> None:
+    """Hardware answers ^C twice; the manual (4-22 table 4-15) shows one."""
+    device, backend = driver
+    device.interrupt()
+    assert backend.writes[-1] == "\x03"
+    assert backend.queue == []
 
 
 def test_check_response_accepts_acknowledgement() -> None:
     assert check_response("=>", "*CLS") == "=>"
 
 
-def test_check_response_rejects_error_prompts() -> None:
+def test_check_response_rejects_hardware_error_prompts() -> None:
     with pytest.raises(ScopeError, match="syntax error"):
-        check_response("?", "BOGUS")
+        check_response("?>", "BOGUS")
     with pytest.raises(ScopeError, match="execution error"):
-        check_response("!", "RANGE 99")
+        check_response("!>", "RANGE 99")
+
+
+def test_is_error_prompt_matches_hardware_prompts() -> None:
+    assert is_error_prompt("?>")
+    assert is_error_prompt("!>")
+    assert not is_error_prompt("=>")
+    assert not is_error_prompt("VDC")
 
 
 # -- identity ---------------------------------------------------------------
