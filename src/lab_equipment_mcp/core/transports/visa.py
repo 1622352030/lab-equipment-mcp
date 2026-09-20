@@ -204,6 +204,20 @@ class VisaBackend:
             except Exception as exc:
                 raise ScopeError(f"SCPI query failed: {exc}") from exc
 
+    def read(self) -> str:
+        """Read one response message without writing anything.
+
+        Some instruments answer a single command with more than one message --
+        for example a data reply followed by an acknowledgement. ``query()`` is
+        atomic (write plus one read), so without this the extra message stays in
+        the buffer and shifts every later reply by one.
+        """
+        with self._lock:
+            try:
+                return str(self.instrument().read()).strip()
+            except Exception as exc:
+                raise ScopeError(f"SCPI read failed: {exc}") from exc
+
     def write(self, command: str) -> None:
         with self._lock:
             try:

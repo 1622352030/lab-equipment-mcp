@@ -23,6 +23,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested; LAN VXI-11 and socket 5025 identity, read-back writes, and binary ARB round trip hardware-tested |
 | Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
+| Fluke | [8808A](docs/fluke/8808A.md) | RS-232 (DB9, via a USB-to-serial adapter) | Identity with redacted serial, the two-message reply protocol, and function/range/rate/format/modifier/compare/trigger/measurement/remote-local all verified by read-back on hardware; `*RST`, `Save`/`Call`, panel lock, external trigger and print mode not accepted on hardware (reasons in the device guide) |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
 documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.

@@ -12,6 +12,8 @@ from .devices.agilent.diagnostics import diagnose_host as diagnose_agilent33500b
 from .devices.agilent.dsox2012a import AgilentDSOX2012A
 from .devices.agilent.series_33500b import Agilent33500B
 from .devices.catalog import list_device_profiles
+from .devices.fluke.diagnostics import diagnose_host as diagnose_fluke8808a_host
+from .devices.fluke.fluke_8808a import Fluke8808A
 from .devices.gw_instek.afg_2125 import AFG2125
 from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_host
 from .devices.maynuo.diagnostics import diagnose_host as diagnose_m8811_host
@@ -28,12 +30,14 @@ agilent33500b_backend = VisaBackend()
 agilentdsox2012a_backend = VisaBackend()
 sdg1062x_backend = VisaBackend()
 m8811_backend = VisaBackend()
+fluke8808a_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
 agilent33500b = Agilent33500B(agilent33500b_backend)
 agilentdsox2012a = AgilentDSOX2012A(agilentdsox2012a_backend)
 sdg1062x = SDG1000X(sdg1062x_backend)
 m8811 = M8811(m8811_backend)
+fluke8808a = Fluke8808A(fluke8808a_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -1224,6 +1228,460 @@ def dpo2012b_write_scpi(command: str, confirm_unsafe: bool = False) -> str:
     return "Command sent"
 
 
+# --- Fluke 8808A (RS-232) ---------------------------------------------------
+#
+# Command coverage follows the 8808A user manual, Rev. 1, tables 4-8 through
+# 4-18 (pages 4-14 .. 4-23). Protocol verified against the instrument on
+# 2026-09-20 (firmware 1.1r D2.0): a query returns its data message and then an
+# acknowledgement, a non-query returns the acknowledgement alone.
+
+
+@mcp.tool(name="fluke8808a_diagnose_setup", annotations=READ_ONLY)
+def fluke8808a_diagnose_setup() -> dict[str, Any]:
+    """Check serial ports, the VISA runtime and candidate resources."""
+    return diagnose_fluke8808a_host(fluke8808a_backend)
+
+
+@mcp.tool(name="fluke8808a_connect", annotations=STATE_CHANGE)
+def fluke8808a_connect(
+    resource: str | None = None,
+    timeout_ms: int = 5000,
+    baud_rate: int = 9600,
+    data_bits: int = 8,
+    stop_bits: float = 1,
+    parity: str = "none",
+    flow_control: str = "none",
+    echo: bool = False,
+) -> dict[str, Any]:
+    """Connect over RS-232 using settings that match the front panel.
+
+    Defaults are the factory terminal settings (manual 4-4 table 4-1). They can
+    only be set from the front panel and cannot be read back over the bus, so
+    pass the actual values when the panel has been changed. `echo` mirrors the
+    front-panel echo setting; leave it off as the manual recommends (4-4).
+    """
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = fluke8808a.connect(
+        resource,
+        timeout_ms,
+        baud_rate=baud_rate,
+        data_bits=data_bits,
+        stop_bits=stop_bits,
+        parity=parity,
+        flow_control=flow_control,
+        echo=echo,
+    )
+    return {
+        "resource": resource,
+        "manufacturer": identity.manufacturer,
+        "model": identity.model,
+        "version": identity.version,
+        "identity": identity.redacted(),
+    }
+
+
+@mcp.tool(name="fluke8808a_disconnect", annotations=STATE_CHANGE)
+def fluke8808a_disconnect() -> str:
+    """Close the serial session."""
+    fluke8808a.disconnect()
+    return "Fluke 8808A disconnected"
+
+
+@mcp.tool(name="fluke8808a_identify", annotations=READ_ONLY)
+def fluke8808a_identify() -> dict[str, str]:
+    """Return `*IDN?` with the serial number redacted."""
+    return fluke8808a.identify()
+
+
+# -- 4-15 table 4-8: common commands ----------------------------------------
+
+
+@mcp.tool(name="fluke8808a_clear_status", annotations=STATE_CHANGE)
+def fluke8808a_clear_status() -> dict[str, Any]:
+    """`*CLS` - clear the event registers."""
+    return fluke8808a.clear_status()
+
+
+@mcp.tool(name="fluke8808a_set_event_status_enable", annotations=STATE_CHANGE)
+def fluke8808a_set_event_status_enable(value: int) -> dict[str, Any]:
+    """`*ESE <value>` - event status enable register, 0..255."""
+    return fluke8808a.set_event_status_enable(value)
+
+
+@mcp.tool(name="fluke8808a_get_event_status", annotations=READ_ONLY)
+def fluke8808a_get_event_status() -> dict[str, Any]:
+    """`*ESR?` - event status register; reading it clears it."""
+    return fluke8808a.get_event_status()
+
+
+@mcp.tool(name="fluke8808a_operation_complete", annotations=STATE_CHANGE)
+def fluke8808a_operation_complete() -> dict[str, Any]:
+    """`*OPC` - set the operation-complete bit when pending work finishes."""
+    return fluke8808a.operation_complete()
+
+
+@mcp.tool(name="fluke8808a_operation_complete_query", annotations=READ_ONLY)
+def fluke8808a_operation_complete_query() -> dict[str, Any]:
+    """`*OPC?` - 1 once pending operations finish."""
+    return fluke8808a.operation_complete_query()
+
+
+@mcp.tool(name="fluke8808a_reset", annotations=STATE_CHANGE)
+def fluke8808a_reset() -> dict[str, Any]:
+    """`*RST` - power-on reset; see manual 3-24 table 3-9 for the resulting state."""
+    return fluke8808a.reset()
+
+
+@mcp.tool(name="fluke8808a_set_service_request_enable", annotations=STATE_CHANGE)
+def fluke8808a_set_service_request_enable(value: int) -> dict[str, Any]:
+    """`*SRE <value>` - service request enable register, 0..255."""
+    return fluke8808a.set_service_request_enable(value)
+
+
+@mcp.tool(name="fluke8808a_get_status", annotations=READ_ONLY)
+def fluke8808a_get_status() -> dict[str, Any]:
+    """`*STB?` - status byte; bit 4 is MAV, bit 6 is the master summary."""
+    return fluke8808a.status_byte()
+
+
+@mcp.tool(name="fluke8808a_trigger", annotations=STATE_CHANGE)
+def fluke8808a_trigger() -> dict[str, Any]:
+    """`*TRG` - trigger a measurement over the bus."""
+    return fluke8808a.trigger()
+
+
+@mcp.tool(name="fluke8808a_self_test", annotations=READ_ONLY)
+def fluke8808a_self_test() -> dict[str, Any]:
+    """`*TST?` - self test; the manual states it always returns 0."""
+    return fluke8808a.self_test()
+
+
+@mcp.tool(name="fluke8808a_wait", annotations=STATE_CHANGE)
+def fluke8808a_wait() -> dict[str, Any]:
+    """`*WAI` - wait for pending operations."""
+    return fluke8808a.wait()
+
+
+# -- 4-16 table 4-9: function commands --------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_function", annotations=STATE_CHANGE)
+def fluke8808a_set_function(function: str, secondary: bool = False) -> dict[str, Any]:
+    """Select a function: vdc, vac, adc, aac, ohms, freq, cont, diode, vacdc, aacdc.
+
+    `AACDC` and `VACDC` exist on the primary display only (manual 4-16 table 4-9
+    note 1), and `SECONDARY` is False by default.
+    """
+    return fluke8808a.set_function(function, secondary=secondary)
+
+
+@mcp.tool(name="fluke8808a_get_function", annotations=READ_ONLY)
+def fluke8808a_get_function(secondary: bool = False) -> dict[str, Any]:
+    """`FUNC1?`/`FUNC2?` - mnemonic of the selected function."""
+    return fluke8808a.get_function(secondary=secondary)
+
+
+@mcp.tool(name="fluke8808a_set_wire_mode", annotations=STATE_CHANGE)
+def fluke8808a_set_wire_mode(wires: int) -> dict[str, Any]:
+    """`WIRE2`/`WIRE4` - two or four wire resistance; valid under OHMS only."""
+    return fluke8808a.set_wire_mode(wires)
+
+
+@mcp.tool(name="fluke8808a_clear_secondary", annotations=STATE_CHANGE)
+def fluke8808a_clear_secondary() -> dict[str, Any]:
+    """`CLR2` - clear the secondary display value."""
+    return fluke8808a.clear_secondary()
+
+
+# -- 4-17 table 4-10: modifiers ---------------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_decibel", annotations=STATE_CHANGE)
+def fluke8808a_set_decibel(enabled: bool = True) -> dict[str, Any]:
+    """`DB`/`DBCLR` - decibel modifier."""
+    return fluke8808a.set_decibel(enabled=enabled)
+
+
+@mcp.tool(name="fluke8808a_set_decibel_reference", annotations=STATE_CHANGE)
+def fluke8808a_set_decibel_reference(code: int) -> dict[str, Any]:
+    """`DBREF <value>` - reference impedance code 1..21 from table 4-10A."""
+    return fluke8808a.set_decibel_reference(code)
+
+
+@mcp.tool(name="fluke8808a_get_decibel_reference", annotations=READ_ONLY)
+def fluke8808a_get_decibel_reference() -> dict[str, Any]:
+    """`DBREF?` - the selected dB reference impedance."""
+    return fluke8808a.decibel_query()
+
+
+@mcp.tool(name="fluke8808a_set_decibel_power", annotations=STATE_CHANGE)
+def fluke8808a_set_decibel_power() -> dict[str, Any]:
+    """`DBPOWER` - dB power mode; voltage functions only."""
+    return fluke8808a.set_decibel_power()
+
+
+@mcp.tool(name="fluke8808a_set_hold", annotations=STATE_CHANGE)
+def fluke8808a_set_hold(enabled: bool = True) -> dict[str, Any]:
+    """`HOLD`/`HOLDCLR` - touch hold."""
+    return fluke8808a.set_hold(enabled=enabled)
+
+
+@mcp.tool(name="fluke8808a_set_hold_threshold", annotations=STATE_CHANGE)
+def fluke8808a_set_hold_threshold(code: int) -> dict[str, Any]:
+    """`HOLDTHRESH <threshold>` - 1/2/3/4 map to 0.01/0.1/1/10 percent."""
+    return fluke8808a.set_hold_threshold(code)
+
+
+@mcp.tool(name="fluke8808a_set_max", annotations=STATE_CHANGE)
+def fluke8808a_set_max(value: float | None = None) -> dict[str, Any]:
+    """`MAX`/`MAXSET <value>` - maximum modifier."""
+    return fluke8808a.set_max(value)
+
+
+@mcp.tool(name="fluke8808a_set_min", annotations=STATE_CHANGE)
+def fluke8808a_set_min(value: float | None = None) -> dict[str, Any]:
+    """`MIN`/`MINSET <value>` - minimum modifier."""
+    return fluke8808a.set_min(value)
+
+
+@mcp.tool(name="fluke8808a_set_min_max", annotations=STATE_CHANGE)
+def fluke8808a_set_min_max(
+    minimum: float | None = None, maximum: float | None = None
+) -> dict[str, Any]:
+    """`MNMX`/`MNMXSET <min>,<max>` - min/max modifier."""
+    return fluke8808a.set_min_max(minimum, maximum)
+
+
+@mcp.tool(name="fluke8808a_clear_min_max", annotations=STATE_CHANGE)
+def fluke8808a_clear_min_max() -> dict[str, Any]:
+    """`MMCLR` - leave min/max and drop the stored extremes."""
+    return fluke8808a.clear_min_max()
+
+
+@mcp.tool(name="fluke8808a_set_relative", annotations=STATE_CHANGE)
+def fluke8808a_set_relative(reference: float | None = None) -> dict[str, Any]:
+    """`REL`/`RELSET <reference>` - relative reading modifier."""
+    return fluke8808a.set_relative(reference)
+
+
+@mcp.tool(name="fluke8808a_clear_relative", annotations=STATE_CHANGE)
+def fluke8808a_clear_relative() -> dict[str, Any]:
+    """`RELCLR` - leave the relative modifier."""
+    return fluke8808a.clear_relative()
+
+
+@mcp.tool(name="fluke8808a_get_relative", annotations=READ_ONLY)
+def fluke8808a_get_relative() -> dict[str, Any]:
+    """`RELSET?` - the active relative reference."""
+    return fluke8808a.relative_query()
+
+
+@mcp.tool(name="fluke8808a_get_modifier", annotations=READ_ONLY)
+def fluke8808a_get_modifier() -> dict[str, Any]:
+    """`MOD?` - bit-coded modifier state (manual 4-18)."""
+    return fluke8808a.modifier_query()
+
+
+# -- 4-19 table 4-11: range and rate ----------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_auto_range", annotations=STATE_CHANGE)
+def fluke8808a_set_auto_range(enabled: bool = True) -> dict[str, Any]:
+    """`AUTO`/`FIXED` - autorange on the primary display."""
+    return fluke8808a.set_auto_range(enabled=enabled)
+
+
+@mcp.tool(name="fluke8808a_get_auto_range", annotations=READ_ONLY)
+def fluke8808a_get_auto_range() -> dict[str, Any]:
+    """`AUTO?` - 1 when autoranging, 0 when fixed."""
+    return fluke8808a.auto_range_query()
+
+
+@mcp.tool(name="fluke8808a_set_range", annotations=STATE_CHANGE)
+def fluke8808a_set_range(range_number: int) -> dict[str, Any]:
+    """`RANGE <value>` - fixed range 1..7; see table 4-11A for per-function values."""
+    return fluke8808a.set_range(range_number)
+
+
+@mcp.tool(name="fluke8808a_get_range", annotations=READ_ONLY)
+def fluke8808a_get_range(secondary: bool = False) -> dict[str, Any]:
+    """`RANGE1?`/`RANGE2?` - current range number."""
+    return fluke8808a.range_query(secondary=secondary)
+
+
+@mcp.tool(name="fluke8808a_set_rate", annotations=STATE_CHANGE)
+def fluke8808a_set_rate(speed: str) -> dict[str, Any]:
+    """`RATE <speed>` - S (2.5/s), M (20/s) or F (100/s)."""
+    return fluke8808a.set_rate(speed)
+
+
+@mcp.tool(name="fluke8808a_get_rate", annotations=READ_ONLY)
+def fluke8808a_get_rate() -> dict[str, Any]:
+    """`RATE?` - current measurement speed."""
+    return fluke8808a.rate_query()
+
+
+# -- 4-20 table 4-12: measurement queries -----------------------------------
+
+
+@mcp.tool(name="fluke8808a_measure_primary", annotations=READ_ONLY)
+def fluke8808a_measure_primary() -> dict[str, Any]:
+    """`MEAS1?` - trigger and return the primary display reading."""
+    return fluke8808a.measure_primary()
+
+
+@mcp.tool(name="fluke8808a_measure_secondary", annotations=READ_ONLY)
+def fluke8808a_measure_secondary() -> dict[str, Any]:
+    """`MEAS2?` - trigger and return the secondary display reading."""
+    return fluke8808a.measure_secondary()
+
+
+@mcp.tool(name="fluke8808a_measure", annotations=READ_ONLY)
+def fluke8808a_measure() -> dict[str, Any]:
+    """`MEAS?` - trigger and return both displays.
+
+    With an external trigger type (2..5) the manual warns the result can be
+    unexpected; use MEAS1? there.
+    """
+    return fluke8808a.measure()
+
+
+@mcp.tool(name="fluke8808a_read_value_primary", annotations=READ_ONLY)
+def fluke8808a_read_value_primary() -> dict[str, Any]:
+    """`VAL1?` - current primary reading without triggering."""
+    return fluke8808a.value_primary()
+
+
+@mcp.tool(name="fluke8808a_read_value_secondary", annotations=READ_ONLY)
+def fluke8808a_read_value_secondary() -> dict[str, Any]:
+    """`VAL2?` - current secondary reading without triggering."""
+    return fluke8808a.value_secondary()
+
+
+@mcp.tool(name="fluke8808a_read_value", annotations=READ_ONLY)
+def fluke8808a_read_value() -> dict[str, Any]:
+    """`VAL?` - current values of both displays without triggering."""
+    return fluke8808a.value()
+
+
+# -- 4-21 table 4-13: compare -----------------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_compare", annotations=STATE_CHANGE)
+def fluke8808a_set_compare(enabled: bool = True) -> dict[str, Any]:
+    """`COMP`/`COMPCLR` - compare mode."""
+    return fluke8808a.set_compare(enabled=enabled)
+
+
+@mcp.tool(name="fluke8808a_get_compare", annotations=READ_ONLY)
+def fluke8808a_get_compare() -> dict[str, Any]:
+    """`COMP?` - HI, LO, PASS, or a dash while the reading is incomplete."""
+    return fluke8808a.compare_query()
+
+
+@mcp.tool(name="fluke8808a_set_compare_limits", annotations=STATE_CHANGE)
+def fluke8808a_set_compare_limits(high: float, low: float) -> dict[str, Any]:
+    """`COMPHI`/`COMPLO` - compare limits."""
+    return fluke8808a.set_compare_limits(high, low)
+
+
+# -- 4-21 table 4-14: trigger configuration ---------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_trigger_type", annotations=STATE_CHANGE)
+def fluke8808a_set_trigger_type(trigger_type: int) -> dict[str, Any]:
+    """`TRIGGER <type>` - 1..5; see manual 4-9 table 4-3 for what each type means."""
+    return fluke8808a.set_trigger_type(trigger_type)
+
+
+@mcp.tool(name="fluke8808a_get_trigger_type", annotations=READ_ONLY)
+def fluke8808a_get_trigger_type() -> dict[str, Any]:
+    """`TRIGGER?` - configured trigger type."""
+    return fluke8808a.trigger_query()
+
+
+# -- 4-22 table 4-15: other commands ----------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_output_format", annotations=STATE_CHANGE)
+def fluke8808a_set_output_format(fmt: int) -> dict[str, Any]:
+    """`FORMAT <format>` - 1 without units, 2 with units (table 4-16)."""
+    return fluke8808a.set_output_format(fmt)
+
+
+@mcp.tool(name="fluke8808a_get_output_format", annotations=READ_ONLY)
+def fluke8808a_get_output_format() -> dict[str, Any]:
+    """`FORMAT?` - current output format."""
+    return fluke8808a.output_format_query()
+
+
+@mcp.tool(name="fluke8808a_set_print_rate", annotations=STATE_CHANGE)
+def fluke8808a_set_print_rate(rate: int) -> dict[str, Any]:
+    """`PRINT <rate>` - print mode rate; 0 disables print mode (table 4-2)."""
+    return fluke8808a.set_print_rate(rate)
+
+
+@mcp.tool(name="fluke8808a_get_serial", annotations=READ_ONLY)
+def fluke8808a_get_serial() -> dict[str, Any]:
+    """`SERIAL?` - serial number presence and length, with the value redacted."""
+    return fluke8808a.serial_query()
+
+
+@mcp.tool(name="fluke8808a_interrupt", annotations=STATE_CHANGE)
+def fluke8808a_interrupt() -> dict[str, str]:
+    """`^C` (control-C) - the manual documents a `=>` acknowledgement."""
+    return fluke8808a.interrupt()
+
+
+# -- 4-23 table 4-17: remote and local --------------------------------------
+
+
+@mcp.tool(name="fluke8808a_set_remote_local", annotations=STATE_CHANGE)
+def fluke8808a_set_remote_local(mode: str) -> dict[str, str]:
+    """`REMS`/`RWLS`/`LOCS`/`LWLS` - remote and local modes.
+
+    RWLS and LWLS lock the front panel, so a locked instrument must be released
+    with one of the local modes before it can be driven from the panel again.
+    """
+    return fluke8808a.set_remote_local(mode)
+
+
+# -- 4-23 table 4-18: save and recall --------------------------------------
+
+
+@mcp.tool(name="fluke8808a_save_configuration", annotations=STATE_CHANGE)
+def fluke8808a_save_configuration(position: int) -> dict[str, Any]:
+    """`Save <position>` - store the working state, positions 1..6."""
+    return fluke8808a.save_configuration(position)
+
+
+@mcp.tool(name="fluke8808a_recall_configuration", annotations=STATE_CHANGE)
+def fluke8808a_recall_configuration(position: int) -> dict[str, Any]:
+    """`Call <position>` - recall a stored state, positions 1..6."""
+    return fluke8808a.recall_configuration(position)
+
+
+# -- generic escape hatch ---------------------------------------------------
+
+
+@mcp.tool(name="fluke8808a_query_scpi", annotations=READ_ONLY)
+def fluke8808a_query_scpi(command: str) -> dict[str, str]:
+    """Send any documented query and return its raw response."""
+    return {"command": command, "response": fluke8808a.query(command)}
+
+
+@mcp.tool(name="fluke8808a_write_scpi", annotations=STATE_CHANGE)
+def fluke8808a_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, Any]:
+    """Send any documented command; the driver validates it against the manual."""
+    if confirm_unsafe:
+        raise ValueError(
+            "Fluke 8808A raw unsafe writes are blocked; use the matching typed tool"
+        )
+    response = fluke8808a.write(command)
+    return {"command": command, "response": response}
+
+
 def main() -> None:
     transport = os.getenv("LAB_EQUIPMENT_MCP_TRANSPORT", "stdio")
     if transport not in {"stdio", "sse", "streamable-http"}:
@@ -1238,6 +1696,7 @@ atexit.register(agilent33500b_backend.disconnect)
 atexit.register(sdg1062x_backend.disconnect)
 atexit.register(agilentdsox2012a_backend.disconnect)
 atexit.register(m8811.disconnect)
+atexit.register(fluke8808a.disconnect)
 
 
 if __name__ == "__main__":

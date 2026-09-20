@@ -22,6 +22,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X 的 USB 双通道波形、模式和 ARB 已完成示波器闭环验收；LAN VXI-11 与 Socket 5025 已完成身份、读写回读和二进制 ARB 往返验证 |
 | Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
+| Fluke（福禄克） | [8808A](docs/fluke/8808A.md) | RS-232（DB9，经 USB 转串口适配器） | 身份与序列号脱敏、双消息应答协议、功能/量程/速率/格式/调节器/比对/触发/测量/远程本地已实机读回验证；`*RST`、`Save`/`Call`、面板锁定、外触发与打印模式未实机验收（原因见设备指南） |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。

@@ -40,3 +40,7 @@ def test_catalog_exposes_device_interfaces() -> None:
         "rs232",
         "rs485",
     }
+    assert devices[6]["vendor"] == "Fluke"
+    assert devices[6]["model"] == "8808A"
+    assert {item["interface_type"] for item in devices[6]["interfaces"]} == {"rs232"}
+    assert devices[6]["interfaces"][0]["connection_notes"]

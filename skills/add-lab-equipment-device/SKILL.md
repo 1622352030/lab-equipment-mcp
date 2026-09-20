@@ -10,6 +10,25 @@ protocol, and acceptance path. Preserve existing devices and keep model-specific
 For recurring failure patterns from the AFG-2125 implementation, read
 [lessons-learned.md](references/lessons-learned.md) before coding.
 
+## The manual's remote-control chapter is the first authority
+
+Everything the driver sends, accepts and reports must come from the manual's remote-control or
+programming chapter, and every such decision must be traceable to a page. Familiarity with other
+instruments is not evidence.
+
+- **Spellings, options, ranges and limits come from the manual.** Do not extend an option list with
+  values that are merely conventional for the transport.
+- **Do not invent descriptive metadata.** If the manual describes a setting across several columns,
+  reproduce those columns rather than collapsing them into a plausible-sounding phrase.
+- **Anything the manual does not state is either omitted or explicitly marked as not documented**, in
+  the driver, the tests and the device guide. Never present a guess as a manual fact.
+- **When the manual contradicts the transport's habits, the manual wins.**
+
+Cases that motivated this rule, all from the Fluke 8808A run: an `odd` parity option the manual
+never lists (it names only `none` and `E = even`); a flow-control option list the manual never
+mentions at all; and trigger-type descriptions invented from front/rear-panel intuition when the
+manual's table 4-3 actually has three columns (trigger source, rear-panel trigger, settling delay).
+
 ## Stage gates
 
 Five checkpoints each require an artefact before the next phase starts. The workflow below says
