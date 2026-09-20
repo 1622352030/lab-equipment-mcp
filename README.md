@@ -36,6 +36,12 @@ M8811 后面板 DB9 是 5 V TTL 串口，不是标准 RS-232。必须使用 M133
 USB-TTL 转换器；标准 RS-232 前需要 M131，RS-485 前需要 M132。接线前请阅读
 [M8811 使用说明](docs/maynuo/M8811.md)。
 
+8808A 只有 RS-232：后部 DB9 母座，管脚 2 为 RXD、3 为 TXD、5 为 GND，需要
+USB 转 RS-232 适配器接入主机。串口参数（波特率、数据位、奇偶校验、回显）只能
+通过前面板设置，命令既不能修改也不能读回，所以 `fluke8808a_connect` 默认使用
+出厂值 9600/8/N/1，面板设置不同时传入实际值即可。详见
+[8808A 使用说明](docs/fluke/8808A.md)。
+
 ## 项目结构
 
 ```text
@@ -58,6 +64,9 @@ src/lab_equipment_mcp/
 |   `-- maynuo/
 |       |-- diagnostics.py       # CH340/CH341、COM 与 VISA ASRL 环境诊断
 |       `-- m8811.py             # M8811 TTL/RS-232/RS-485 SCPI 和输出保护
+|   `-- fluke/
+|       |-- diagnostics.py       # FTDI/COM 与 VISA ASRL 环境诊断
+|       `-- fluke_8808a.py       # 8808A 功能、量程、调节器和测量查询
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -116,6 +125,8 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
 - M8811：Maynuo M133 或经确认的 USB-TTL 转换器、M131 后的标准 RS-232，或 M132
   后的 RS-485，再配合可将对应 COM 口暴露为 ASRL 的 VISA Runtime。禁止把后面板
   TTL DB9 直接连接到标准 RS-232 电平。
+- 8808A：任意可用的 USB 转 RS-232 适配器（本机为 FTDI FT232R），再配合可将该
+  COM 口暴露为 ASRL 的 VISA Runtime。电压类测量使用 `VΩ` 与 `LO` 端子。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
@@ -591,6 +602,53 @@ CH340 USB-TTL 身份、设置读回、保护门、FIX 输出和 LIST 两级循�
 DVM、DRM、远端采样和非默认串口参数因未接对应接口或未改面板设置而未实测。
 文档不记录动态分配的 COM 编号和设备序列号。接线、完整 SCPI 覆盖和安全策略见
 [M8811 使用说明](docs/maynuo/M8811.md)。
+
+## Fluke 8808A 工具
+
+8808A 是 5-1/2 位双显示万用表，通过 RS-232 控制，命令集是 Fluke 私有助记符
+（`VDC`、`OHMS`、`FREQ` 等）而非纯 SCPI。串口参数只能通过前面板设置，命令既
+不能修改也不能读回，因此 `fluke8808a_connect` 默认使用出厂值 9600/8/N/1，并在
+面板设置不同时接受覆盖参数（波特率、数据位、停止位、奇偶校验、流控、回显）。
+`fluke8808a_diagnose_setup` 会列出所有 COM 口并标出 FTDI 适配器，只有唯一候选
+时才自动选择。
+
+- `fluke8808a_diagnose_setup`、`fluke8808a_connect`、`fluke8808a_identify`、`fluke8808a_disconnect`
+- `fluke8808a_clear_status`、`fluke8808a_get_status`、`fluke8808a_get_event_status`
+- `fluke8808a_set_event_status_enable`、`fluke8808a_set_service_request_enable`
+- `fluke8808a_operation_complete`、`fluke8808a_operation_complete_query`、`fluke8808a_wait`
+- `fluke8808a_reset`、`fluke8808a_trigger`、`fluke8808a_self_test`、`fluke8808a_interrupt`
+- `fluke8808a_set_function`、`fluke8808a_get_function`、`fluke8808a_set_wire_mode`、`fluke8808a_clear_secondary`
+- `fluke8808a_set_decibel`、`fluke8808a_set_decibel_reference`、`fluke8808a_get_decibel_reference`、`fluke8808a_set_decibel_power`
+- `fluke8808a_set_hold`、`fluke8808a_set_hold_threshold`
+- `fluke8808a_set_max`、`fluke8808a_set_min`、`fluke8808a_set_min_max`、`fluke8808a_clear_min_max`
+- `fluke8808a_set_relative`、`fluke8808a_clear_relative`、`fluke8808a_get_relative`、`fluke8808a_get_modifier`
+- `fluke8808a_set_auto_range`、`fluke8808a_get_auto_range`、`fluke8808a_set_range`、`fluke8808a_get_range`
+- `fluke8808a_set_rate`、`fluke8808a_get_rate`
+- `fluke8808a_measure_primary`、`fluke8808a_measure_secondary`、`fluke8808a_measure`
+- `fluke8808a_read_value_primary`、`fluke8808a_read_value_secondary`、`fluke8808a_read_value`
+- `fluke8808a_set_compare`、`fluke8808a_get_compare`、`fluke8808a_set_compare_limits`
+- `fluke8808a_set_trigger_type`、`fluke8808a_get_trigger_type`
+- `fluke8808a_set_output_format`、`fluke8808a_get_output_format`、`fluke8808a_set_print_rate`
+- `fluke8808a_get_serial`、`fluke8808a_set_remote_local`
+- `fluke8808a_save_configuration`、`fluke8808a_recall_configuration`
+- `fluke8808a_query_scpi`、`fluke8808a_write_scpi`
+
+工具覆盖手册第 4 章表 4-8～4-18 的全部命令组，并有覆盖测试确保每条手册命令都
+能实际发出、且不会发出手册之外的命令。
+
+在固件 `1.1r D2.0` 上实机验证：身份与序列号脱敏、协议时序、10 个测量功能、
+量程 1-7、速率 S/M/F、调节器全组（保持、相对、最小/最大、分贝）、比对三种判定
+（PASS/LO/HI）、触发类型、输出格式、`Save`/`Call` 精确还原、`*RST` 回到出厂
+状态、远程/本地、打印模式、回显开启、双显示。以 SDG1062X 作为信号源的接收
+闭环：直流 ±1/2 V 误差约 1 mV，正弦与方波交流电压、100 Hz～10 kHz 频率（误差
+为 0）、交流加直流有效值。外部触发类型 2-5（需 DB9 第 9 脚接 TTL 信号）、
+`*TST?`（该固件未实现）与总线 SRQ（摘要位不置位）未实测。
+
+实测发现多处手册与固件差异：错误提示为 `?>`/`!>` 而非 `?`/`!`、错误回复之后没有
+确认、`^C` 回两条确认、`MAXSET`/`MINSET`/`MNMXSET` 只存值而不进入模式、
+`*RST` 需 2.8 秒才应答且不重置输出格式。`*IDN?` 与 `SERIAL?` 两处的序列号均已
+脱敏。协议细节、双显示开启方法和完整功能对照表见
+[8808A 使用说明](docs/fluke/8808A.md)。
 
 ## 增加其他设备
 

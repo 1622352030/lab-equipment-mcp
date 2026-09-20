@@ -37,6 +37,13 @@ The M8811 rear DB9 is 5 V TTL, not standard RS-232. Use M133 or a verified USB-T
 converter, M131 before a standard RS-232 adapter, or M132 before RS-485. See the
 [M8811 guide](docs/maynuo/M8811.md) before connecting a cable.
 
+The 8808A has RS-232 only: a rear DB9 socket with pin 2 RXD, pin 3 TXD and pin 5
+GND, so it needs a USB-to-RS-232 adapter. Its terminal settings (baud rate, data
+bits, parity, echo) are front-panel only and can be neither read nor changed over
+the bus, so `fluke8808a_connect` defaults to the factory 9600/8/N/1 and takes the
+panel values as arguments when they differ. See the
+[8808A guide](docs/fluke/8808A.md).
+
 ## Project Structure
 
 ```text
@@ -62,6 +69,9 @@ src/lab_equipment_mcp/
 |   `-- maynuo/
 |       |-- diagnostics.py       # CH340/CH341, COM, and VISA ASRL diagnostics
 |       `-- m8811.py             # M8811 TTL/RS-232/RS-485 SCPI and output safety
+|   `-- fluke/
+|       |-- diagnostics.py       # FTDI/COM and VISA ASRL diagnostics
+|       `-- fluke_8808a.py       # 8808A functions, ranges, modifiers, measurements
 `-- server.py                    # MCP tool registration
 ```
 
@@ -121,6 +131,9 @@ Device driver requirements:
 - M8811: Maynuo M133 or a verified USB-TTL adapter, M131 before standard RS-232, or
   M132 before RS-485, plus a VISA runtime exposing the selected COM port as ASRL.
   Never connect the rear TTL DB9 directly to standard RS-232 voltage levels.
+- 8808A: any working USB-to-RS-232 adapter (FTDI FT232R on the machine used here),
+  plus a VISA runtime exposing that COM port as ASRL. Voltage measurements use the
+  `VΩ` and `LO` terminals.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
   interface, and close vendor applications or other VISA/serial tools that hold an
   exclusive session.
@@ -512,6 +525,60 @@ timed out on this firmware. DVM, DRM, remote sense, non-default panel serial set
 M131, and M132 remain physically untested. The assigned COM number and instrument serial
 number are not recorded. See the [M8811 guide](docs/maynuo/M8811.md) for wiring, complete
 SCPI coverage, installation, troubleshooting, and safety controls.
+
+## Fluke 8808A Tools
+
+The 8808A is a 5-1/2 digit dual-display multimeter controlled over RS-232. Its
+command set uses Fluke mnemonics (`VDC`, `OHMS`, `FREQ`, ...) rather than plain
+SCPI. Terminal settings are front-panel only and can be neither read nor changed
+over the bus, so `fluke8808a_connect` defaults to the factory 9600/8/N/1 and
+accepts overrides (baud rate, data bits, stop bits, parity, flow control, echo).
+`fluke8808a_diagnose_setup` lists every COM port, flags FTDI adapters, and
+auto-selects only when a single candidate exists.
+
+- `fluke8808a_diagnose_setup`, `fluke8808a_connect`, `fluke8808a_identify`, `fluke8808a_disconnect`
+- `fluke8808a_clear_status`, `fluke8808a_get_status`, `fluke8808a_get_event_status`
+- `fluke8808a_set_event_status_enable`, `fluke8808a_set_service_request_enable`
+- `fluke8808a_operation_complete`, `fluke8808a_operation_complete_query`, `fluke8808a_wait`
+- `fluke8808a_reset`, `fluke8808a_trigger`, `fluke8808a_self_test`, `fluke8808a_interrupt`
+- `fluke8808a_set_function`, `fluke8808a_get_function`, `fluke8808a_set_wire_mode`, `fluke8808a_clear_secondary`
+- `fluke8808a_set_decibel`, `fluke8808a_set_decibel_reference`, `fluke8808a_get_decibel_reference`, `fluke8808a_set_decibel_power`
+- `fluke8808a_set_hold`, `fluke8808a_set_hold_threshold`
+- `fluke8808a_set_max`, `fluke8808a_set_min`, `fluke8808a_set_min_max`, `fluke8808a_clear_min_max`
+- `fluke8808a_set_relative`, `fluke8808a_clear_relative`, `fluke8808a_get_relative`, `fluke8808a_get_modifier`
+- `fluke8808a_set_auto_range`, `fluke8808a_get_auto_range`, `fluke8808a_set_range`, `fluke8808a_get_range`
+- `fluke8808a_set_rate`, `fluke8808a_get_rate`
+- `fluke8808a_measure_primary`, `fluke8808a_measure_secondary`, `fluke8808a_measure`
+- `fluke8808a_read_value_primary`, `fluke8808a_read_value_secondary`, `fluke8808a_read_value`
+- `fluke8808a_set_compare`, `fluke8808a_get_compare`, `fluke8808a_set_compare_limits`
+- `fluke8808a_set_trigger_type`, `fluke8808a_get_trigger_type`
+- `fluke8808a_set_output_format`, `fluke8808a_get_output_format`, `fluke8808a_set_print_rate`
+- `fluke8808a_get_serial`, `fluke8808a_set_remote_local`
+- `fluke8808a_save_configuration`, `fluke8808a_recall_configuration`
+- `fluke8808a_query_scpi`, `fluke8808a_write_scpi`
+
+The tools cover every command group in tables 4-8 .. 4-18 of the manual's
+remote-control chapter, and a coverage test asserts that each documented command
+reaches the wire and that nothing outside the manual is sent.
+
+Hardware-tested on firmware `1.1r D2.0`: identity with serial redaction, protocol
+ordering, all ten measurement functions, ranges 1-7, rates S/M/F, the whole
+modifier group (hold, relative, min/max, dB), all three compare verdicts
+(PASS/LO/HI), trigger type, output format, `Save`/`Call` restoring a stored setup
+exactly, `*RST` returning the factory state, remote/local, print mode, echo on,
+and dual display. Closed loop against an SDG1062X as the source: DC ±1/2 V to
+about 1 mV, sine and square AC volts, 100 Hz to 10 kHz frequency (exact), and
+AC+DC RMS. External trigger types 2-5 (needs a TTL signal on DB9 pin 9), `*TST?`
+(not implemented on this firmware) and bus SRQ (summary bits do not set) remain
+untested.
+
+Several manual-versus-firmware differences were measured: error prompts are
+`?>`/`!>` rather than `?`/`!`, an error reply carries no acknowledgement, `^C`
+answers twice, `MAXSET`/`MINSET`/`MNMXSET` store a value without entering the
+mode, and `*RST` takes 2.8 s and does not reset the output format. The serial
+number is redacted in both `*IDN?` and `SERIAL?`. See the
+[8808A guide](docs/fluke/8808A.md) for protocol details, how to open the
+secondary display, and the complete feature comparison table.
 
 ## Add Another Device
 
