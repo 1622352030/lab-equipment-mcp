@@ -125,8 +125,10 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
 - M8811：Maynuo M133 或经确认的 USB-TTL 转换器、M131 后的标准 RS-232，或 M132
   后的 RS-485，再配合可将对应 COM 口暴露为 ASRL 的 VISA Runtime。禁止把后面板
   TTL DB9 直接连接到标准 RS-232 电平。
-- 8808A：任意可用的 USB 转 RS-232 适配器（本机为 FTDI FT232R），再配合可将该
-  COM 口暴露为 ASRL 的 VISA Runtime。电压类测量使用 `VΩ` 与 `LO` 端子。
+- 8808A：任意可用的 USB 转 RS-232 适配器，再配合可将该 COM 口暴露为 ASRL 的
+  VISA Runtime。适配器必须提供 RS-232 电平——FTDI、CH340、PL2303、CP210x 等
+  桥接芯片的"USB 转 RS-232"成品均可，纯 TTL 转接板不能直连，因为 8808A 的
+  DB9 是标准 RS-232。电压类测量使用 `VΩ` 与 `LO` 端子。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
