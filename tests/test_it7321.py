@@ -1,0 +1,430 @@
+"""Tests for the ITECH IT7321 AC source driver.
+
+The safety behaviour matters more than anything else here: the driver must refuse
+a voltage above the configured ceiling, and it must not enable the output unless
+the setpoint and the instrument's own ceiling have both been read back and found
+within limits.
+
+Protocol facts encoded in :class:`FakeBackend` come from hardware on 2026-09-20
+(firmware ``0.16-0.22``):
+
+* set commands are answered with silence, read-backs with ``<value>\\n``
+* ``SYST:REM`` is required before any control command is accepted
+* the instrument accepts a single TCP session
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from lab_equipment_mcp.core.errors import ScopeError
+from lab_equipment_mcp.core.interfaces import InterfaceType
+from lab_equipment_mcp.devices.itech.it7321 import (
+    IT7321,
+    IT7321_LIMIT_ENV,
+    IT7321_PROFILE,
+    IT7321_RATED_VOLTAGE_V,
+    IT7321_TEST_VOLTAGE_LIMIT_V,
+    parse_error_queue,
+    parse_identity,
+)
+from lab_equipment_mcp.devices.itech.it7321 import (
+    test_voltage_limit_v as voltage_limit,
+)
+
+IDN = "ITECH Ltd., IT7321, 123456789012345678, 0.16-0.22"
+
+
+class FakeBackend:
+    """Models the instrument: quiet writes, stateful read-backs."""
+
+    def __init__(self) -> None:
+        self.resource_name = None
+        self.interface_type = None
+        self.connected_session = None
+        self.writes: list[str] = []
+        self.remote = False
+        self.state = {
+            "VOLT": 0.0,
+            "FREQ": 50.0,
+            "OUTP": 0,
+            "CONF:VOLT:MAX": 30.0,
+            "CONF:VOLT:MIN": 0.0,
+            "CONF:FREQ:MIN": 45.0,
+            "CONF:FREQ:MAX": 500.0,
+            "PHAS:STAR": 0.0,
+            "PHAS:END": 0.0,
+            "DIMM": 0.0,
+        }
+        self.errors: list[str] = []
+
+    # -- backend surface ---------------------------------------------------
+
+    def connect(self, resource, timeout_ms, session):
+        self.resource_name = resource
+        self.interface_type = InterfaceType.LAN_SOCKET
+        self.connected_session = session
+        return IDN
+
+    def disconnect(self):
+        self.resource_name = None
+
+    def write(self, command):
+        self.writes.append(command)
+        if command == "SYST:REM":
+            self.remote = True
+        elif command == "SYST:LOC":
+            self.remote = False
+        elif command.startswith("VOLT "):
+            self.state["VOLT"] = float(command.split()[1])
+        elif command.startswith("CONF:VOLT:MAX "):
+            self.state["CONF:VOLT:MAX"] = float(command.split()[1])
+        elif command.startswith("FREQ "):
+            self.state["FREQ"] = float(command.split()[1])
+        elif command == "OUTP 0":
+            self.state["OUTP"] = 0
+        elif command in {"OUTP 1", "OUTP:STAT 1"}:
+            self.state["OUTP"] = 1
+
+    def query(self, command):
+        table = {
+            "*IDN?": IDN,
+            "VOLT?": f"{self.state['VOLT']}",
+            "FREQ?": f"{self.state['FREQ']}",
+            "OUTP?": f"{self.state['OUTP']}",
+            "CONF:VOLT:MAX?": f"{self.state['CONF:VOLT:MAX']}",
+            "CONF:VOLT:MIN?": f"{self.state['CONF:VOLT:MIN']}",
+            "CONF:FREQ:MIN?": f"{self.state['CONF:FREQ:MIN']}",
+            "CONF:FREQ:MAX?": f"{self.state['CONF:FREQ:MAX']}",
+            "SYST:VERS?": "1991.1",
+            "TRIG:SOUR?": "BUS",
+            "*ESR?": "0",
+            "*STB?": "0",
+            "*TST?": "0",
+            "*OPT?": "0",
+        }
+        if command == "SYST:ERR?":
+            if self.errors:
+                return self.errors.pop(0)
+            return "0,No error"
+        if command not in table:
+            raise AssertionError(f"driver sent an unexpected query: {command!r}")
+        return table[command]
+
+
+@pytest.fixture
+def driver() -> tuple[IT7321, FakeBackend]:
+    backend = FakeBackend()
+    device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
+    device.connect("192.168.0.125:30000")
+    return device, backend
+
+
+# -- profile and limits -----------------------------------------------------
+
+
+def test_profile_declares_lan_socket() -> None:
+    assert IT7321_PROFILE.vendor == "ITECH"
+    assert IT7321_PROFILE.model == "IT7321"
+    assert len(IT7321_PROFILE.interfaces) == 1
+    assert IT7321_PROFILE.interfaces[0].interface_type is InterfaceType.LAN_SOCKET
+
+
+def test_default_limit_is_thirty_volts() -> None:
+    assert IT7321_TEST_VOLTAGE_LIMIT_V == 30.0
+    assert voltage_limit() == 30.0
+
+
+def test_limit_can_be_overridden_by_environment(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_LIMIT_ENV, "12.5")
+    assert voltage_limit() == 12.5
+
+
+def test_limit_rejects_non_numeric_environment(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_LIMIT_ENV, "lots")
+    with pytest.raises(ValueError):
+        voltage_limit()
+
+
+def test_limit_cannot_exceed_the_instrument_rating(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_LIMIT_ENV, str(IT7321_RATED_VOLTAGE_V + 1))
+    with pytest.raises(ValueError, match="rating"):
+        voltage_limit()
+
+
+def test_limit_must_be_positive(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_LIMIT_ENV, "0")
+    with pytest.raises(ValueError):
+        voltage_limit()
+
+
+# -- connection and remote mode --------------------------------------------
+
+
+def test_connect_enters_remote_mode() -> None:
+    """Without SYST:REM the instrument rejects every control command (manual p9)."""
+    backend = FakeBackend()
+    device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
+    device.connect("192.168.0.125:30000")
+    assert backend.writes[0] == "SYST:REM"
+    assert backend.remote is True
+
+
+def test_disconnect_returns_local_and_drops_the_output() -> None:
+    backend = FakeBackend()
+    device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
+    device.connect("192.168.0.125:30000")
+    device.disconnect()
+    assert "OUTP 0" in backend.writes
+    assert "SYST:LOC" in backend.writes
+    assert backend.remote is False
+
+
+def test_bare_address_is_normalised_to_a_socket_resource() -> None:
+    backend = FakeBackend()
+    device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
+    device.connect("192.168.0.125:30000")
+    assert backend.resource_name == "TCPIP0::192.168.0.125::30000::SOCKET"
+
+
+def test_commands_before_connect_are_refused() -> None:
+    device = IT7321(FakeBackend(), settle_s=0)  # type: ignore[arg-type]
+    with pytest.raises(ScopeError, match="No IT7321 is connected"):
+        device.voltage_query()
+
+
+# -- identity ---------------------------------------------------------------
+
+
+def test_parse_identity_reads_four_fields() -> None:
+    identity = parse_identity(IDN)
+    assert identity.manufacturer == "ITECH Ltd."
+    assert identity.model == "IT7321"
+    assert identity.serial == "123456789012345678"
+    assert identity.version == "0.16-0.22"
+
+
+def test_identify_redacts_the_serial(driver) -> None:
+    device, _ = driver
+    result = device.identify()
+    assert result["serial"] == "redacted"
+    assert "123456789012345678" not in str(result)
+
+
+def test_parse_identity_rejects_malformed() -> None:
+    with pytest.raises(ScopeError):
+        parse_identity("ITECH only")
+
+
+# -- safety: voltage ceiling ------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [30.5, 45.0, 100.0, 300.0, -45.0])
+def test_set_voltage_refuses_above_the_limit(driver, value: float) -> None:
+    """The whole point of the limit: a wrong number must never reach the wire."""
+    device, backend = driver
+    with pytest.raises(ValueError, match="refusing to set"):
+        device.set_voltage(value)
+    assert not any(w.startswith("VOLT ") for w in backend.writes), "nothing may be sent"
+
+
+@pytest.mark.parametrize("value", [0.0, 5.0, 29.9, 30.0, -30.0])
+def test_set_voltage_accepts_within_the_limit(driver, value: float) -> None:
+    device, backend = driver
+    result = device.set_voltage(value)
+    assert result["readback"] == pytest.approx(value)
+    assert f"VOLT {value}" in backend.writes
+
+
+def test_set_voltage_rejects_non_finite(driver) -> None:
+    device, _ = driver
+    with pytest.raises(ValueError):
+        device.set_voltage(float("inf"))
+    with pytest.raises(ValueError):
+        device.set_voltage(float("nan"))
+
+
+def test_limit_override_is_honoured_by_set_voltage(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_LIMIT_ENV, "5")
+    backend = FakeBackend()
+    device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
+    device.connect("192.168.0.125:30000")
+    with pytest.raises(ValueError):
+        device.set_voltage(6.0)
+    assert device.set_voltage(5.0)["readback"] == pytest.approx(5.0)
+
+
+def test_clamp_voltage_ceiling_defaults_to_the_limit(driver) -> None:
+    device, backend = driver
+    result = device.clamp_voltage_ceiling()
+    assert result["readback"] == pytest.approx(30.0)
+    assert "CONF:VOLT:MAX 30.0" in backend.writes
+
+
+def test_clamp_refuses_to_raise_above_the_configured_limit(driver) -> None:
+    device, _ = driver
+    with pytest.raises(ValueError, match="refusing to raise"):
+        device.clamp_voltage_ceiling(100.0)
+
+
+# -- safety: enabling the output -------------------------------------------
+
+
+def test_enable_without_confirmation_is_refused(driver) -> None:
+    device, backend = driver
+    device.set_voltage(0)
+    with pytest.raises(ValueError, match="confirm_enable"):
+        device.set_output(True)
+    assert "OUTP 1" not in backend.writes
+
+
+def test_enable_reads_back_setpoint_and_ceiling(driver) -> None:
+    device, backend = driver
+    device.set_voltage(5.0)
+    result = device.set_output(True, confirm_enable=True)
+    assert result["enabled"] is True
+    assert result["voltage_setpoint"] == pytest.approx(5.0)
+    assert result["instrument_ceiling"] == pytest.approx(30.0)
+    assert result["limit"] == 30.0
+    assert "OUTP 1" in backend.writes
+
+
+def test_enable_is_refused_when_the_setpoint_is_out_of_range(driver) -> None:
+    """A setpoint pushed onto the instrument by someone else must still block us."""
+    device, backend = driver
+    backend.state["VOLT"] = 80.0  # as if set from the front panel
+    with pytest.raises(ScopeError, match="setpoint"):
+        device.set_output(True, confirm_enable=True)
+    assert "OUTP 1" not in backend.writes
+
+
+def test_enable_is_refused_when_the_instrument_ceiling_is_too_high(driver) -> None:
+    device, backend = driver
+    backend.state["CONF:VOLT:MAX"] = 300.0
+    with pytest.raises(ScopeError, match="ceiling"):
+        device.set_output(True, confirm_enable=True)
+    assert "OUTP 1" not in backend.writes
+
+
+def test_disable_always_works(driver) -> None:
+    device, backend = driver
+    backend.state["OUTP"] = 1
+    result = device.set_output(False)
+    assert result["enabled"] is False
+    assert "OUTP 0" in backend.writes
+
+
+def test_output_query_decodes_state(driver) -> None:
+    device, backend = driver
+    assert device.output_query()["enabled"] is False
+    backend.state["OUTP"] = 1
+    assert device.output_query()["enabled"] is True
+
+
+# -- error queue ------------------------------------------------------------
+
+
+def test_parse_error_queue_empty() -> None:
+    entry = parse_error_queue("0,No error")
+    assert entry["empty"] is True
+    assert entry["code"] == 0
+
+
+def test_parse_error_queue_entry() -> None:
+    entry = parse_error_queue("-200,Execution error")
+    assert entry["empty"] is False
+    assert entry["code"] == -200
+    assert entry["message"] == "Execution error"
+
+
+def test_drain_errors_reads_until_empty(driver) -> None:
+    device, backend = driver
+    backend.errors = ["-200,Execution error", "-113,Undefined header"]
+    found = device.drain_errors()
+    assert [e["code"] for e in found] == [-200, -113]
+
+
+# -- other commands ---------------------------------------------------------
+
+
+def test_frequency_is_range_checked(driver) -> None:
+    device, _ = driver
+    assert device.set_frequency(50)["readback"] == pytest.approx(50.0)
+    with pytest.raises(ValueError):
+        device.set_frequency(1000)
+    with pytest.raises(ValueError):
+        device.set_frequency(10)
+
+
+def test_configuration_reads_limits(driver) -> None:
+    device, _ = driver
+    config = device.configuration()
+    assert config["voltage_max"] == pytest.approx(30.0)
+    assert config["frequency_min"] == pytest.approx(45.0)
+    assert config["frequency_max"] == pytest.approx(500.0)
+
+
+def test_list_step_voltage_is_limited(driver) -> None:
+    """A list step is another way to command a voltage, so it is limited too."""
+    device, backend = driver
+    with pytest.raises(ValueError, match="limit"):
+        device.set_list_step(1, volts=45.0)
+    device.set_list_step(1, volts=12.0, hertz=60.0)
+    assert "LIST:STEP:VOLT 1,12.0" in backend.writes
+
+
+def test_sweep_voltages_are_limited(driver) -> None:
+    device, _ = driver
+    with pytest.raises(ValueError, match="limit"):
+        device.configure_sweep(start_v=0, end_v=60, step_v=5, step_s=1)
+    device.configure_sweep(start_v=0, end_v=20, step_v=5, step_s=1)
+
+
+def test_list_slope_voltages_are_limited(driver) -> None:
+    device, _ = driver
+    with pytest.raises(ValueError, match="limit"):
+        device.set_list_slope_voltage(1, start_v=0, end_v=99, seconds=1)
+    device.set_list_slope_voltage(1, start_v=0, end_v=10, seconds=1)
+
+
+def test_trigger_source_is_validated(driver) -> None:
+    device, backend = driver
+    device.set_trigger_source("bus")
+    assert "TRIG:SOUR BUS" in backend.writes
+    with pytest.raises(ValueError):
+        device.set_trigger_source("whenever")
+
+
+def test_common_commands_are_spelled_as_documented(driver) -> None:
+    device, backend = driver
+    device.clear_status()
+    device.reset()
+    device.wait()
+    device.operation_complete()
+    assert "*CLS" in backend.writes
+    assert "*RST" in backend.writes
+    assert "*WAI" in backend.writes
+    assert "*OPC" in backend.writes
+
+
+def test_save_recall_register_is_bounded(driver) -> None:
+    device, backend = driver
+    device.save_state(3)
+    device.recall_state(3)
+    assert "*SAV 3" in backend.writes
+    assert "*RCL 3" in backend.writes
+    with pytest.raises(ValueError):
+        device.save_state(12)
+
+
+def test_display_text_is_quoted(driver) -> None:
+    device, backend = driver
+    device.set_display_text('hi "there"')
+    assert 'DISP:TEXT "hi \'there\'"' in backend.writes
+
+
+def test_generic_escape_hatch(driver) -> None:
+    device, backend = driver
+    device.write("SYST:CLE")
+    assert backend.writes[-1] == "SYST:CLE"
+    assert device.query("SYST:VERS?") == "1991.1"

@@ -22,7 +22,8 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC、可选 LAN VXI-11、可选 GPIB | USBTMC 身份、代表性只读命令及 SDG1062X CH1/CH2 接收闭环已实机验证；完整编程指南 SCPI/二进制入口已实现 |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X 的 USB 双通道波形、模式和 ARB 已完成示波器闭环验收；LAN VXI-11 与 Socket 5025 已完成身份、读写回读和二进制 ARB 往返验证 |
 | Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
-| Fluke（福禄克） | [8808A](docs/fluke/8808A.md) | RS-232（DB9，经 USB 转串口适配器） | 身份与序列号脱敏、双消息应答协议、功能/量程/速率/格式/调节器/比对/触发/测量/远程本地已实机读回验证；`*RST`、`Save`/`Call`、面板锁定、外触发与打印模式未实机验收（原因见设备指南） |
+| Fluke（福禄克） | [8808A](docs/fluke/8808A.md) | RS-232（DB9，经 USB 转串口适配器） | 身份与序列号脱敏、双消息应答协议、全部写操作（功能/量程/速率/格式/调节器/比对/触发/保存调用/`*RST`/远程本地）、面板回显、双显示及 SDG1062X 接收闭环均已实机验证；外触发类型 2-5、`*TST?`（该固件未实现）与总线 SRQ 未实测 |
+| ITECH（艾德克斯） | [IT7321](docs/itech/IT7321.md) | LAN Socket（默认端口 30000） | 身份与序列号脱敏、远程/本地模式、LAN 单会话协议、电压与频率读写回、**三层 30 V 输出上限**（含设备侧拒绝超压）、《8808A》接收闭环（5/10/20/30 V 误差 <1%）与**真实带电过压监控**（52 ms 切断输出）已实机验证；列表、扫描、相位、电流保护与 BNC 未实测 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。
@@ -41,6 +42,12 @@ USB 转 RS-232 适配器接入主机。串口参数（波特率、数据位、�
 通过前面板设置，命令既不能修改也不能读回，所以 `fluke8808a_connect` 默认使用
 出厂值 9600/8/N/1，面板设置不同时传入实际值即可。详见
 [8808A 使用说明](docs/fluke/8808A.md)。
+
+IT7321 通过 LAN 控制，默认使用 **Socket 端口 30000**（不是 5025）。地址、掩码、
+网关和端口只能通过前面板设置：`Shift`+`Menu` → `System` → `Communication` → `LAN`，
+命令既不能读也不能改。工控机需要与设备同网段，并且该设备**同时只接受一个 TCP 会话**。
+另外，远程控制前必须先发 `SYST:REM`，否则设备会拒绝所有设置命令（查询仍正常应答）。
+详见 [IT7321 使用说明](docs/itech/IT7321.md)。
 
 ## 项目结构
 
@@ -67,6 +74,9 @@ src/lab_equipment_mcp/
 |   `-- fluke/
 |       |-- diagnostics.py       # FTDI/COM 与 VISA ASRL 环境诊断
 |       `-- fluke_8808a.py       # 8808A 功能、量程、调节器和测量查询
+|   `-- itech/
+|       |-- diagnostics.py       # LAN 网段检查与 Socket 端口身份探测
+|       `-- it7321.py            # IT7321 交流电源 SCPI 与 30 V 输出上限
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -129,6 +139,9 @@ Python，或为 `uv` 准备可用的离线 Python/包缓存。
   VISA Runtime。适配器必须提供 RS-232 电平——FTDI、CH340、PL2303、CP210x 等
   桥接芯片的"USB 转 RS-232"成品均可，纯 TTL 转接板不能直连，因为 8808A 的
   DB9 是标准 RS-232。电压类测量使用 `VΩ` 与 `LO` 端子。
+- IT7321：网线接入设备 LAN 口，工控机具备同网段地址，并开放默认 Socket 端口
+  30000。设备**同时只接受一个 TCP 会话**，因此运行过压监控脚本期间该会话由
+  监控独占，其他程序无法同时连接。
 - 其他设备：安装其接口所需的 VISA、虚拟串口或厂商驱动，并避免厂商软件、串口
   工具或其他 VISA 程序独占设备会话。
 
@@ -651,6 +664,53 @@ DVM、DRM、远端采样和非默认串口参数因未接对应接口或未改�
 `*RST` 需 2.8 秒才应答且不重置输出格式。`*IDN?` 与 `SERIAL?` 两处的序列号均已
 脱敏。协议细节、双显示开启方法和完整功能对照表见
 [8808A 使用说明](docs/fluke/8808A.md)。
+
+## ITECH IT7321 工具
+
+IT7321 是 300 V / 3 A / 300 VA 的可编程交流电源，通过 LAN Socket 控制，命令集是
+标准 SCPI（不是私有命令）。远程控制前必须先发 `SYST:REM`——否则设备会拒绝所有
+设置命令（查询仍正常应答），退出时发 `SYST:LOC` 交还面板。设备**同时只接受一个
+TCP 会话**。
+
+**交流输出电压被硬性限制在 30 V**，这是用户为测试阶段设定的安全上限（不是设备
+规格），三层同时生效、缺一不可：
+
+1. **设备侧** `CONF:VOLT:MAX 30`——设备自己拒绝超压（实测发 45 V 时回 `120,Parameter overflowed`）
+2. **驱动侧** `set_voltage()` 拒绝任何超限值，且**不会把命令发出去**
+3. **开输出前** 读回 `VOLT?` 与 `CONF:VOLT:MAX?` 双重确认，任一超限即拒绝开启
+
+上限是**单一常量** `IT7321_TEST_VOLTAGE_LIMIT_V`，可用环境变量
+`LAB_EQUIPMENT_IT7321_MAX_VOLTAGE` 覆盖，改一处即可；`it7321_get_voltage_limit`
+会报告当前生效值与来源。**放开前必须得到用户明确同意**，且
+`clamp_voltage_ceiling` 会拒绝把设备侧上限设得比它还高，避免两层不一致。
+`it7321_write_scpi` 会绕过这些检查，因此要求 `confirm_unsafe=True`。
+
+另有一个独立的过压监控进程 `scripts/it7321_voltage_guard.py`：持续读 8808A 的
+交流电压，超阈值立即关闭 IT7321 输出并降压。实测在 10 V 真实输出、5 V 阈值下
+**52 ms 完成切断**；万用表连续读失败也会判定为不安全并切断。
+
+- `it7321_diagnose_setup`、`it7321_connect`、`it7321_disconnect`、`it7321_identify`
+- **安全**：`it7321_get_voltage_limit`、`it7321_set_voltage`、`it7321_set_output`、`it7321_clamp_voltage_ceiling`
+- 状态：`it7321_get_configuration`、`it7321_get_voltage`、`it7321_get_frequency`、`it7321_get_output_state`、`it7321_get_errors`、`it7321_clear_errors`
+- 配置：`it7321_set_voltage_minimum`、`it7321_set_frequency_limits`、`it7321_set_frequency`、`it7321_set_voltage_range`、`it7321_set_voltage_unit`、`it7321_set_phase`、`it7321_set_dimmer_phase`、`it7321_set_dimmer_mode`、`it7321_set_bnc_function`、`it7321_set_list_start_mode`、`it7321_set_current_measure_mode`、`it7321_set_current_protection`、`it7321_clear_protection`
+- 量测：`it7321_measure_voltage`、`it7321_measure_current`、`it7321_measure_power`、`it7321_measure_apparent_power`、`it7321_measure_power_factor`、`it7321_measure_frequency`、`it7321_measure_current_peak`、`it7321_measure_current_peak_maximum`、`it7321_measure_all`、`it7321_fetch_voltage`、`it7321_fetch_current`、`it7321_fetch_power`、`it7321_fetch_frequency`、`it7321_fetch_all`
+- 列表：`it7321_set_list_state`、`it7321_set_list_count`、`it7321_set_list_step`、`it7321_set_list_slope_voltage`、`it7321_save_list_bank`、`it7321_recall_list`、`it7321_get_list_run`
+- 扫描：`it7321_set_sweep_state`、`it7321_configure_sweep`、`it7321_recall_sweep`
+- 触发与显示：`it7321_trigger`、`it7321_set_trigger_source`、`it7321_set_display`、`it7321_set_display_text`、`it7321_clear_display_text`
+- 系统：`it7321_set_remote`、`it7321_set_local`、`it7321_set_local_lockout`、`it7321_set_beeper`、`it7321_preset`、`it7321_get_power_on_setup`、`it7321_set_power_on_setup`、`it7321_get_scpi_version`
+- 通用命令：`it7321_clear_status`、`it7321_set_event_status_enable`、`it7321_get_event_status`、`it7321_set_service_request_enable`、`it7321_get_status`、`it7321_operation_complete`、`it7321_wait`、`it7321_reset`、`it7321_save_state`、`it7321_recall_state`、`it7321_self_test`、`it7321_get_options`
+- 逃生口：`it7321_query_scpi`、`it7321_write_scpi`
+
+工具覆盖编程指南九章的命令组（系统、配置、频率、相位、电压、输出、量测、列表、
+扫描、触发、显示）及 IEEE-488.2 通用命令，共 **78 个**。
+
+固件 `0.16-0.22` 上实机验证：身份与序列号脱敏、LAN Socket 身份、远程/本地模式、
+电压与频率读写回、输出开关、错误队列、三层 30 V 上限（含设备侧拒绝超压）、
+`8808A` 接收闭环（5/10/20/30 V，误差 <1%）、真实带电过压监控（52 ms 切断）。
+**列表与扫描模式、相位与调光、电流保护跳闸、BNC 端子、`VOLT:UNIT` 回读未实测**，
+原因见设备指南。LAN 参数只能面板设置，命令不可读写。
+
+[IT7321 使用说明](docs/itech/IT7321.md)。
 
 ## 增加其他设备
 

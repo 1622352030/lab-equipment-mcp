@@ -16,6 +16,14 @@ from .devices.fluke.diagnostics import diagnose_host as diagnose_fluke8808a_host
 from .devices.fluke.fluke_8808a import Fluke8808A
 from .devices.gw_instek.afg_2125 import AFG2125
 from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_host
+from .devices.itech.diagnostics import diagnose_host as diagnose_it7321_host
+from .devices.itech.it7321 import (
+    IT7321,
+    IT7321_LIMIT_ENV,
+    IT7321_RATED_VOLTAGE_V,
+    IT7321_TEST_VOLTAGE_LIMIT_V,
+    test_voltage_limit_v,
+)
 from .devices.maynuo.diagnostics import diagnose_host as diagnose_m8811_host
 from .devices.maynuo.m8811 import M8811
 from .devices.siglent.diagnostics import diagnose_host as diagnose_sdg1062x_host
@@ -31,6 +39,7 @@ agilentdsox2012a_backend = VisaBackend()
 sdg1062x_backend = VisaBackend()
 m8811_backend = VisaBackend()
 fluke8808a_backend = VisaBackend()
+it7321_backend = VisaBackend()
 dpo2012b = DPO2012B(dpo2012b_backend)
 afg2125 = AFG2125(afg2125_backend)
 agilent33500b = Agilent33500B(agilent33500b_backend)
@@ -38,6 +47,7 @@ agilentdsox2012a = AgilentDSOX2012A(agilentdsox2012a_backend)
 sdg1062x = SDG1000X(sdg1062x_backend)
 m8811 = M8811(m8811_backend)
 fluke8808a = Fluke8808A(fluke8808a_backend)
+it7321 = IT7321(it7321_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -1680,6 +1690,608 @@ def fluke8808a_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[st
         )
     response = fluke8808a.write(command)
     return {"command": command, "response": response}
+
+
+# --- ITECH IT7321 (LAN socket) ----------------------------------------------
+#
+# Command coverage follows the IT7300 programming guide V3.2, which covers the
+# IT7321. Two safety rules are enforced here as well as in the driver:
+#
+#   1. the output voltage may not exceed the configured ceiling (30 V for the
+#      integration phase - see IT7321_TEST_VOLTAGE_LIMIT_V / LAB_EQUIPMENT_IT7321_MAX_VOLTAGE)
+#   2. the output cannot be enabled unless the setpoint and the instrument's own
+#      ceiling have both been read back and found within that limit
+#
+# Remote control also requires SYST:REM (the connect tool sends it) and a single
+# TCP session on port 30000.
+
+
+@mcp.tool(name="it7321_diagnose_setup", annotations=READ_ONLY)
+def it7321_diagnose_setup(
+    host: str = "192.168.0.125",
+    port: int = 30000,
+    probe: bool = True,
+) -> dict[str, Any]:
+    """Check the LAN route, the socket port and the identity of an IT7321.
+
+    `probe` sends a read-only `*IDN?` on the SCPI socket. Set it false to avoid
+    occupying the instrument's single TCP session.
+    """
+    return diagnose_it7321_host(host, port, probe=probe)
+
+
+@mcp.tool(name="it7321_connect", annotations=STATE_CHANGE)
+def it7321_connect(resource: str = "192.168.0.125:30000", timeout_ms: int = 5000) -> dict[str, Any]:
+    """Connect over the LAN socket and put the instrument into remote mode.
+
+    Accepts `host`, `host:port` or a full `TCPIP0::...::SOCKET` resource. Sends
+    `SYST:REM`, without which the instrument rejects every control command, and
+    locks the front panel until `it7321_disconnect`.
+    """
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    identity = it7321.connect(resource, timeout_ms)
+    return {
+        "resource": resource,
+        "manufacturer": identity.manufacturer,
+        "model": identity.model,
+        "version": identity.version,
+        "identity": identity.redacted(),
+        "voltage_limit_v": test_voltage_limit_v(),
+    }
+
+
+@mcp.tool(name="it7321_disconnect", annotations=STATE_CHANGE)
+def it7321_disconnect() -> str:
+    """Turn the output off, return the panel to the operator and close the socket."""
+    it7321.disconnect()
+    return "IT7321 disconnected (output off, panel returned to local)"
+
+
+@mcp.tool(name="it7321_identify", annotations=READ_ONLY)
+def it7321_identify() -> dict[str, str]:
+    """Return `*IDN?` with the serial number redacted."""
+    return it7321.identify()
+
+
+# -- safety ----------------------------------------------------------------
+
+
+@mcp.tool(name="it7321_get_voltage_limit", annotations=READ_ONLY)
+def it7321_get_voltage_limit() -> dict[str, Any]:
+    """Report the output-voltage ceiling currently in force and where it comes from."""
+    import os as _os
+
+    override = _os.getenv(IT7321_LIMIT_ENV)
+    return {
+        "limit_v": test_voltage_limit_v(),
+        "default_v": IT7321_TEST_VOLTAGE_LIMIT_V,
+        "override_env": IT7321_LIMIT_ENV,
+        "override_value": override,
+        "instrument_rating_v": IT7321_RATED_VOLTAGE_V,
+        "note": (
+            "The ceiling is a single constant with an environment override. Raising it "
+            "requires explicit user agreement and must be paired with "
+            "it7321_clamp_voltage_ceiling so the instrument enforces it too."
+        ),
+    }
+
+
+@mcp.tool(name="it7321_set_voltage", annotations=STATE_CHANGE)
+def it7321_set_voltage(volts: float) -> dict[str, Any]:
+    """Set the output voltage setpoint.
+
+    Refuses anything above the configured ceiling. This is the primary guard
+    against a wrong number reaching the instrument during testing.
+    """
+    return it7321.set_voltage(volts)
+
+
+@mcp.tool(name="it7321_clamp_voltage_ceiling", annotations=STATE_CHANGE)
+def it7321_clamp_voltage_ceiling(value: float | None = None) -> dict[str, Any]:
+    """`CONF:VOLT:MAX` - set the instrument's own output ceiling.
+
+    The hardware backstop: once set, the instrument itself refuses a setpoint
+    above it. Defaults to the configured limit and will not raise it.
+    """
+    return it7321.clamp_voltage_ceiling(value)
+
+
+@mcp.tool(name="it7321_set_output", annotations=STATE_CHANGE)
+def it7321_set_output(enabled: bool, confirm_enable: bool = False) -> dict[str, Any]:
+    """`OUTPut[:STATe]` - enable or disable the output.
+
+    Disabling always works. Enabling requires `confirm_enable=True` and passes
+    two read-back checks first: the voltage setpoint and the instrument ceiling
+    must both be within the configured limit.
+    """
+    return it7321.set_output(enabled, confirm_enable=confirm_enable)
+
+
+@mcp.tool(name="it7321_get_output_state", annotations=READ_ONLY)
+def it7321_get_output_state() -> dict[str, Any]:
+    """`OUTP?` - whether the output is currently on."""
+    return it7321.output_query()
+
+
+# -- configuration and state -----------------------------------------------
+
+
+@mcp.tool(name="it7321_get_configuration", annotations=READ_ONLY)
+def it7321_get_configuration() -> dict[str, Any]:
+    """Read the configuration limits (voltage and frequency bounds)."""
+    return it7321.configuration()
+
+
+@mcp.tool(name="it7321_get_voltage", annotations=READ_ONLY)
+def it7321_get_voltage() -> dict[str, Any]:
+    """`VOLT?` - current voltage setpoint."""
+    return it7321.voltage_query()
+
+
+@mcp.tool(name="it7321_get_frequency", annotations=READ_ONLY)
+def it7321_get_frequency() -> dict[str, Any]:
+    """`FREQ?` - current output frequency."""
+    return it7321.frequency_query()
+
+
+@mcp.tool(name="it7321_get_errors", annotations=READ_ONLY)
+def it7321_get_errors() -> dict[str, Any]:
+    """`SYSTem:ERRor?` - drain the error queue.
+
+    Every entry read here is one beep the instrument will not make. The queue
+    holds up to 20 entries and `*RST` does not clear it.
+    """
+    return {"errors": it7321.drain_errors()}
+
+
+@mcp.tool(name="it7321_clear_errors", annotations=STATE_CHANGE)
+def it7321_clear_errors() -> dict[str, Any]:
+    """`SYSTem:CLEar` - clear the error queue."""
+    return it7321.clear_errors()
+
+
+@mcp.tool(name="it7321_set_voltage_minimum", annotations=STATE_CHANGE)
+def it7321_set_voltage_minimum(volts: float) -> dict[str, Any]:
+    """`CONF:VOLT:MIN` - configuration lower bound for the output voltage."""
+    return it7321.set_voltage_minimum(volts)
+
+
+@mcp.tool(name="it7321_set_frequency_limits", annotations=STATE_CHANGE)
+def it7321_set_frequency_limits(minimum_hz: float, maximum_hz: float) -> dict[str, Any]:
+    """`CONF:FREQ:MIN`/`MAX` - configuration frequency bounds (45-500 Hz)."""
+    return it7321.set_frequency_limits(minimum_hz, maximum_hz)
+
+
+@mcp.tool(name="it7321_set_frequency", annotations=STATE_CHANGE)
+def it7321_set_frequency(hertz: float) -> dict[str, Any]:
+    """`FREQ` - output frequency, within 45-500 Hz."""
+    return it7321.set_frequency(hertz)
+
+
+@mcp.tool(name="it7321_set_voltage_range", annotations=STATE_CHANGE)
+def it7321_set_voltage_range(range_name: str) -> dict[str, Any]:
+    """`RANG` - voltage/current range: AUTO or HIGH."""
+    return it7321.set_voltage_range(range_name)
+
+
+@mcp.tool(name="it7321_set_voltage_unit", annotations=STATE_CHANGE)
+def it7321_set_voltage_unit(unit: str) -> dict[str, Any]:
+    """`VOLT:UNIT` - VPP, VRMS or DBM.
+
+    Firmware 0.16-0.22 does not answer `VOLT:UNIT?`, so the unit cannot be read
+    back on that build.
+    """
+    return it7321.set_voltage_unit(unit)
+
+
+@mcp.tool(name="it7321_set_phase", annotations=STATE_CHANGE)
+def it7321_set_phase(
+    start_deg: float | None = None, end_deg: float | None = None
+) -> dict[str, Any]:
+    """`PHAS:STAR`/`PHAS:END` - output phase window in degrees."""
+    return it7321.set_phase(start_deg=start_deg, end_deg=end_deg)
+
+
+@mcp.tool(name="it7321_set_dimmer_phase", annotations=STATE_CHANGE)
+def it7321_set_dimmer_phase(degrees: float) -> dict[str, Any]:
+    """`DIMM` - dimmer phase angle."""
+    return it7321.set_dimmer_phase(degrees)
+
+
+@mcp.tool(name="it7321_set_dimmer_mode", annotations=STATE_CHANGE)
+def it7321_set_dimmer_mode(mode: str) -> dict[str, Any]:
+    """`CONF:DIMM:MODE` - leading, trailing or off."""
+    return it7321.set_dimmer_mode(mode)
+
+
+@mcp.tool(name="it7321_set_bnc_function", annotations=STATE_CHANGE)
+def it7321_set_bnc_function(function: str) -> dict[str, Any]:
+    """`CONF:BNC:FUNC` - rear BNC function."""
+    return it7321.set_bnc_function(function)
+
+
+@mcp.tool(name="it7321_set_list_start_mode", annotations=STATE_CHANGE)
+def it7321_set_list_start_mode(mode: str) -> dict[str, Any]:
+    """`CONF:LIST:STAR:MODE` - how a list run is started."""
+    return it7321.set_list_start_mode(mode)
+
+
+@mcp.tool(name="it7321_set_current_measure_mode", annotations=STATE_CHANGE)
+def it7321_set_current_measure_mode(mode: str, range_name: str = "AUTO") -> dict[str, Any]:
+    """`CONF:MEAS:CURR:MODE`/`:RANG` - current measurement mode and range."""
+    return it7321.set_current_measure_mode(mode, range_name=range_name)
+
+
+@mcp.tool(name="it7321_set_current_protection", annotations=STATE_CHANGE)
+def it7321_set_current_protection(
+    rms_a: float | None = None,
+    peak_a: float | None = None,
+    mode: str = "DELAY",
+) -> dict[str, Any]:
+    """`CONF:PROT:CURR:RMS`/`:PEAK` - over-current protection points."""
+    return it7321.set_current_protection(rms_a=rms_a, peak_a=peak_a, mode=mode)
+
+
+@mcp.tool(name="it7321_clear_protection", annotations=STATE_CHANGE)
+def it7321_clear_protection() -> dict[str, Any]:
+    """`PROT:CLE` - clear a latched protection trip."""
+    return it7321.clear_protection()
+
+
+# -- measurement -----------------------------------------------------------
+
+
+@mcp.tool(name="it7321_measure_voltage", annotations=READ_ONLY)
+def it7321_measure_voltage() -> dict[str, Any]:
+    """`MEAS:VOLT:AC?` - measured AC output voltage."""
+    return it7321.measure_voltage()
+
+
+@mcp.tool(name="it7321_measure_current", annotations=READ_ONLY)
+def it7321_measure_current() -> dict[str, Any]:
+    """`MEAS:CURR:AC?` - measured AC output current."""
+    return it7321.measure_current()
+
+
+@mcp.tool(name="it7321_measure_power", annotations=READ_ONLY)
+def it7321_measure_power() -> dict[str, Any]:
+    """`MEAS:POW:AC?` - measured real power."""
+    return it7321.measure_power()
+
+
+@mcp.tool(name="it7321_measure_apparent_power", annotations=READ_ONLY)
+def it7321_measure_apparent_power() -> dict[str, Any]:
+    """`MEAS:POW:AC:APP?` - measured apparent power."""
+    return it7321.measure_apparent_power()
+
+
+@mcp.tool(name="it7321_measure_power_factor", annotations=READ_ONLY)
+def it7321_measure_power_factor() -> dict[str, Any]:
+    """`MEAS:POW:AC:PFAC?` - measured power factor."""
+    return it7321.measure_power_factor()
+
+
+@mcp.tool(name="it7321_measure_frequency", annotations=READ_ONLY)
+def it7321_measure_frequency() -> dict[str, Any]:
+    """`MEAS:FREQ?` - measured output frequency."""
+    return it7321.measure_frequency()
+
+
+@mcp.tool(name="it7321_measure_current_peak", annotations=READ_ONLY)
+def it7321_measure_current_peak() -> dict[str, Any]:
+    """`MEAS:CURR:AC:PEAK?` - peak output current."""
+    return it7321.measure_current_peak()
+
+
+@mcp.tool(name="it7321_measure_current_peak_maximum", annotations=READ_ONLY)
+def it7321_measure_current_peak_maximum() -> dict[str, Any]:
+    """`MEAS:CURR:AC:PEAK:MAX?` - highest peak current seen."""
+    return it7321.measure_current_peak_maximum()
+
+
+@mcp.tool(name="it7321_measure_all", annotations=READ_ONLY)
+def it7321_measure_all() -> dict[str, Any]:
+    """`MEAS?` - the instrument's own multi-value measurement summary."""
+    return it7321.measure_all()
+
+
+@mcp.tool(name="it7321_fetch_voltage", annotations=READ_ONLY)
+def it7321_fetch_voltage() -> dict[str, Any]:
+    """`FETC:VOLT:AC?` - last voltage reading without a new measurement."""
+    return it7321.fetch_voltage()
+
+
+@mcp.tool(name="it7321_fetch_current", annotations=READ_ONLY)
+def it7321_fetch_current() -> dict[str, Any]:
+    """`FETC:CURR:AC?` - last current reading."""
+    return it7321.fetch_current()
+
+
+@mcp.tool(name="it7321_fetch_power", annotations=READ_ONLY)
+def it7321_fetch_power() -> dict[str, Any]:
+    """`FETC:POW:AC?` - last real power reading."""
+    return it7321.fetch_power()
+
+
+@mcp.tool(name="it7321_fetch_frequency", annotations=READ_ONLY)
+def it7321_fetch_frequency() -> dict[str, Any]:
+    """`FETC:FREQ?` - last frequency reading."""
+    return it7321.fetch_frequency()
+
+
+@mcp.tool(name="it7321_fetch_all", annotations=READ_ONLY)
+def it7321_fetch_all() -> dict[str, Any]:
+    """`FETC?` - the instrument's own fetch summary."""
+    return it7321.fetch_all()
+
+
+# -- list mode -------------------------------------------------------------
+
+
+@mcp.tool(name="it7321_set_list_state", annotations=STATE_CHANGE)
+def it7321_set_list_state(enabled: bool = True) -> dict[str, Any]:
+    """`LIST:STAT` - enable or leave list mode."""
+    return it7321.set_list_state(enabled=enabled)
+
+
+@mcp.tool(name="it7321_set_list_count", annotations=STATE_CHANGE)
+def it7321_set_list_count(steps: int | None = None, repeat: int | None = None) -> dict[str, Any]:
+    """`LIST:STEP:COUN`/`LIST:REP` - list length and repeat count."""
+    return it7321.set_list_count(steps=steps, repeat=repeat)
+
+
+@mcp.tool(name="it7321_set_list_step", annotations=STATE_CHANGE)
+def it7321_set_list_step(
+    step: int,
+    volts: float | None = None,
+    hertz: float | None = None,
+    slope: float | None = None,
+    dwell_s: float | None = None,
+) -> dict[str, Any]:
+    """`LIST:STEP:*` - configure one list step. Voltage is limit-checked."""
+    return it7321.set_list_step(step, volts=volts, hertz=hertz, slope=slope, dwell_s=dwell_s)
+
+
+@mcp.tool(name="it7321_set_list_slope_voltage", annotations=STATE_CHANGE)
+def it7321_set_list_slope_voltage(
+    step: int, start_v: float, end_v: float, seconds: float
+) -> dict[str, Any]:
+    """`LIST:STEP:SD:*` - a voltage ramp inside one list step. Limit-checked."""
+    return it7321.set_list_slope_voltage(step, start_v=start_v, end_v=end_v, seconds=seconds)
+
+
+@mcp.tool(name="it7321_save_list_bank", annotations=STATE_CHANGE)
+def it7321_save_list_bank(bank: int) -> dict[str, Any]:
+    """`LIST:SAV:BANK` - store the list to a bank."""
+    return it7321.save_list_bank(bank)
+
+
+@mcp.tool(name="it7321_recall_list", annotations=STATE_CHANGE)
+def it7321_recall_list(bank: int) -> dict[str, Any]:
+    """`LIST:REC` - recall a stored list bank."""
+    return it7321.recall_list(bank)
+
+
+@mcp.tool(name="it7321_get_list_run", annotations=READ_ONLY)
+def it7321_get_list_run() -> dict[str, Any]:
+    """`LIST:RUN:STEP:COUN?`/`:REP?` - remaining run counters."""
+    return it7321.list_run_query()
+
+
+# -- sweep -----------------------------------------------------------------
+
+
+@mcp.tool(name="it7321_set_sweep_state", annotations=STATE_CHANGE)
+def it7321_set_sweep_state(enabled: bool = True) -> dict[str, Any]:
+    """`SWE:STAT` - enable or leave sweep mode."""
+    return it7321.set_sweep_state(enabled=enabled)
+
+
+@mcp.tool(name="it7321_configure_sweep", annotations=STATE_CHANGE)
+def it7321_configure_sweep(
+    start_v: float,
+    end_v: float,
+    step_v: float,
+    step_s: float,
+    start_hz: float | None = None,
+    end_hz: float | None = None,
+    step_hz: float | None = None,
+) -> dict[str, Any]:
+    """`SWE:STAR/STEP/END` - voltage (and optional frequency) sweep. Voltages are limit-checked."""
+    return it7321.configure_sweep(
+        start_v=start_v,
+        end_v=end_v,
+        step_v=step_v,
+        step_s=step_s,
+        start_hz=start_hz,
+        end_hz=end_hz,
+        step_hz=step_hz,
+    )
+
+
+@mcp.tool(name="it7321_recall_sweep", annotations=STATE_CHANGE)
+def it7321_recall_sweep(bank: int) -> dict[str, Any]:
+    """`SWE:REC` - recall a stored sweep."""
+    return it7321.recall_sweep(bank)
+
+
+# -- trigger and display ---------------------------------------------------
+
+
+@mcp.tool(name="it7321_trigger", annotations=STATE_CHANGE)
+def it7321_trigger() -> dict[str, Any]:
+    """`TRIG` - immediate bus trigger."""
+    return it7321.trigger()
+
+
+@mcp.tool(name="it7321_set_trigger_source", annotations=STATE_CHANGE)
+def it7321_set_trigger_source(source: str) -> dict[str, Any]:
+    """`TRIG:SOUR` - trigger source."""
+    return it7321.set_trigger_source(source)
+
+
+@mcp.tool(name="it7321_set_display", annotations=STATE_CHANGE)
+def it7321_set_display(enabled: bool = True) -> dict[str, Any]:
+    """`DISP` - display on or off."""
+    return it7321.set_display(enabled=enabled)
+
+
+@mcp.tool(name="it7321_set_display_text", annotations=STATE_CHANGE)
+def it7321_set_display_text(text: str) -> dict[str, Any]:
+    """`DISP:TEXT` - write a message to the display."""
+    return it7321.set_display_text(text)
+
+
+@mcp.tool(name="it7321_clear_display_text", annotations=STATE_CHANGE)
+def it7321_clear_display_text() -> dict[str, Any]:
+    """`DISP:TEXT:CLE` - clear the display message."""
+    return it7321.clear_display_text()
+
+
+# -- system and common commands --------------------------------------------
+
+
+@mcp.tool(name="it7321_set_remote", annotations=STATE_CHANGE)
+def it7321_set_remote() -> dict[str, Any]:
+    """`SYST:REM` - lock the panel and accept control commands."""
+    return it7321.set_remote()
+
+
+@mcp.tool(name="it7321_set_local", annotations=STATE_CHANGE)
+def it7321_set_local() -> dict[str, Any]:
+    """`SYST:LOC` - return the front panel to the operator."""
+    return it7321.set_local()
+
+
+@mcp.tool(name="it7321_set_local_lockout", annotations=STATE_CHANGE)
+def it7321_set_local_lockout(enabled: bool = True) -> dict[str, Any]:
+    """`SYST:RWL` - remote with local lockout, or release it."""
+    return it7321.set_local_lockout(enabled=enabled)
+
+
+@mcp.tool(name="it7321_set_beeper", annotations=STATE_CHANGE)
+def it7321_set_beeper(enabled: bool = True) -> dict[str, Any]:
+    """`SYST:BEEP` - key and error beeper on or off."""
+    return it7321.set_beeper(enabled=enabled)
+
+
+@mcp.tool(name="it7321_preset", annotations=STATE_CHANGE)
+def it7321_preset() -> dict[str, Any]:
+    """`SYST:PRES` - reset to the power-on preset (same as `*RST`)."""
+    return it7321.preset()
+
+
+@mcp.tool(name="it7321_get_power_on_setup", annotations=READ_ONLY)
+def it7321_get_power_on_setup() -> dict[str, Any]:
+    """`SYST:POS?` - power-on recall mode."""
+    return it7321.power_on_setup_query()
+
+
+@mcp.tool(name="it7321_set_power_on_setup", annotations=STATE_CHANGE)
+def it7321_set_power_on_setup(mode: str) -> dict[str, Any]:
+    """`SYST:POS` - power-on parameter recall: RST or SAV0."""
+    return it7321.power_on_setup(mode)
+
+
+@mcp.tool(name="it7321_get_scpi_version", annotations=READ_ONLY)
+def it7321_get_scpi_version() -> dict[str, str]:
+    """`SYST:VERS?` - SCPI version string."""
+    return it7321.scpi_version()
+
+
+@mcp.tool(name="it7321_clear_status", annotations=STATE_CHANGE)
+def it7321_clear_status() -> dict[str, Any]:
+    """`*CLS` - clear status registers."""
+    return it7321.clear_status()
+
+
+@mcp.tool(name="it7321_set_event_status_enable", annotations=STATE_CHANGE)
+def it7321_set_event_status_enable(value: int) -> dict[str, Any]:
+    """`*ESE` - event status enable register, 0..255."""
+    return it7321.set_event_status_enable(value)
+
+
+@mcp.tool(name="it7321_get_event_status", annotations=READ_ONLY)
+def it7321_get_event_status() -> dict[str, Any]:
+    """`*ESR?` - event status register."""
+    return it7321.event_status_query()
+
+
+@mcp.tool(name="it7321_set_service_request_enable", annotations=STATE_CHANGE)
+def it7321_set_service_request_enable(value: int) -> dict[str, Any]:
+    """`*SRE` - service request enable register, 0..255."""
+    return it7321.set_service_request_enable(value)
+
+
+@mcp.tool(name="it7321_get_status", annotations=READ_ONLY)
+def it7321_get_status() -> dict[str, Any]:
+    """`*STB?` - status byte."""
+    return it7321.status_byte()
+
+
+@mcp.tool(name="it7321_operation_complete", annotations=STATE_CHANGE)
+def it7321_operation_complete() -> dict[str, Any]:
+    """`*OPC` - set the operation-complete bit when finished."""
+    return it7321.operation_complete()
+
+
+@mcp.tool(name="it7321_wait", annotations=STATE_CHANGE)
+def it7321_wait() -> dict[str, Any]:
+    """`*WAI` - wait for pending operations."""
+    return it7321.wait()
+
+
+@mcp.tool(name="it7321_reset", annotations=STATE_CHANGE)
+def it7321_reset() -> dict[str, Any]:
+    """`*RST` - reset to instrument defaults. Does not clear the error queue."""
+    return it7321.reset()
+
+
+@mcp.tool(name="it7321_save_state", annotations=STATE_CHANGE)
+def it7321_save_state(register: int) -> dict[str, Any]:
+    """`*SAV` - save the instrument state to a register (0..9)."""
+    return it7321.save_state(register)
+
+
+@mcp.tool(name="it7321_recall_state", annotations=STATE_CHANGE)
+def it7321_recall_state(register: int) -> dict[str, Any]:
+    """`*RCL` - recall a saved state (0..9)."""
+    return it7321.recall_state(register)
+
+
+@mcp.tool(name="it7321_self_test", annotations=READ_ONLY)
+def it7321_self_test() -> dict[str, Any]:
+    """`*TST?` - self test; 0 means passed."""
+    return it7321.self_test()
+
+
+@mcp.tool(name="it7321_get_options", annotations=READ_ONLY)
+def it7321_get_options() -> dict[str, Any]:
+    """`*OPT?` - installed options."""
+    return it7321.options_query()
+
+
+@mcp.tool(name="it7321_query_scpi", annotations=READ_ONLY)
+def it7321_query_scpi(command: str) -> dict[str, str]:
+    """Send any documented query and return its raw response."""
+    return {"command": command, "response": it7321.query(command)}
+
+
+@mcp.tool(name="it7321_write_scpi", annotations=STATE_CHANGE)
+def it7321_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, Any]:
+    """Send any documented command.
+
+    The generic entry point bypasses the voltage guard by design, so it refuses
+    to run unless `confirm_unsafe=True` - use the typed tools for normal work.
+    """
+    if not confirm_unsafe:
+        raise ValueError(
+            "raw writes bypass the 30 V guard; use the typed tools, or pass "
+            "confirm_unsafe=True if a documented command is genuinely needed"
+        )
+    it7321.write(command)
+    return {"command": command}
 
 
 def main() -> None:
