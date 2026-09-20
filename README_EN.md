@@ -626,7 +626,7 @@ A separate over-voltage guard (`scripts/it7321_voltage_guard.py`) reads the 8808
 continuously and cuts the output on over-voltage; measured at **52 ms** with a live
 10 V output against a 5 V threshold. Consecutive meter read failures also trip it.
 
-- `it7321_diagnose_setup`, `it7321_connect`, `it7321_disconnect`, `it7321_identify`
+- `it7321_diagnose_setup`, `it7321_connect`, `it7321_disconnect`, `it7321_identify`, `it7321_get_endpoint`
 - **safety**: `it7321_get_voltage_limit`, `it7321_set_voltage`, `it7321_set_output`, `it7321_clamp_voltage_ceiling`
 - state: `it7321_get_configuration`, `it7321_get_voltage`, `it7321_get_frequency`, `it7321_get_output_state`, `it7321_get_errors`, `it7321_clear_errors`
 - configuration: `it7321_set_voltage_minimum`, `it7321_set_frequency_limits`, `it7321_set_frequency`, `it7321_set_voltage_range`, `it7321_set_voltage_unit`, `it7321_set_phase`, `it7321_set_dimmer_phase`, `it7321_set_dimmer_mode`, `it7321_set_bnc_function`, `it7321_set_list_start_mode`, `it7321_set_current_measure_mode`, `it7321_set_current_protection`, `it7321_clear_protection`

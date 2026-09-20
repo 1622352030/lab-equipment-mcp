@@ -698,7 +698,7 @@ TCP 会话**。
 交流电压，超阈值立即关闭 IT7321 输出并降压。实测在 10 V 真实输出、5 V 阈值下
 **52 ms 完成切断**；万用表连续读失败也会判定为不安全并切断。
 
-- `it7321_diagnose_setup`、`it7321_connect`、`it7321_disconnect`、`it7321_identify`
+- `it7321_diagnose_setup`、`it7321_connect`、`it7321_disconnect`、`it7321_identify`、`it7321_get_endpoint`
 - **安全**：`it7321_get_voltage_limit`、`it7321_set_voltage`、`it7321_set_output`、`it7321_clamp_voltage_ceiling`
 - 状态：`it7321_get_configuration`、`it7321_get_voltage`、`it7321_get_frequency`、`it7321_get_output_state`、`it7321_get_errors`、`it7321_clear_errors`
 - 配置：`it7321_set_voltage_minimum`、`it7321_set_frequency_limits`、`it7321_set_frequency`、`it7321_set_voltage_range`、`it7321_set_voltage_unit`、`it7321_set_phase`、`it7321_set_dimmer_phase`、`it7321_set_dimmer_mode`、`it7321_set_bnc_function`、`it7321_set_list_start_mode`、`it7321_set_current_measure_mode`、`it7321_set_current_protection`、`it7321_clear_protection`

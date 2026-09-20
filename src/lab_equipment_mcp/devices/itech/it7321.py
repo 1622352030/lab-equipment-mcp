@@ -55,8 +55,52 @@ IT7321_RATED_VOLTAGE_V = 300.0
 IT7321_RATED_CURRENT_A = 3.0
 IT7321_RATED_POWER_VA = 300.0
 
+# --------------------------------------------------------------------------
+# LAN endpoint
+# --------------------------------------------------------------------------
+#
+# Single source of truth for the instrument's address, in the same style as the
+# voltage ceiling above: one constant, overridable by environment, read through
+# helper functions so no other module has to repeat the literal.
+#
+#     * code:  IT7321_DEFAULT_HOST / IT7321_DEFAULT_PORT   (below)
+#    * or env: LAB_EQUIPMENT_IT7321_HOST / LAB_EQUIPMENT_IT7321_PORT
+#
+# The instrument's own LAN settings are front-panel only, so this is the only
+# place the address is configured. Changing the instrument's IP means editing
+# one line here (or setting the environment variable) - nothing else.
+IT7321_DEFAULT_HOST = "10.11.9.231"
 IT7321_DEFAULT_PORT = 30000
-IT7321_DEFAULT_HOST = "192.168.0.125"
+IT7321_HOST_ENV = "LAB_EQUIPMENT_IT7321_HOST"
+IT7321_PORT_ENV = "LAB_EQUIPMENT_IT7321_PORT"
+
+
+def default_host() -> str:
+    """Return the instrument address currently in force.
+
+    Defaults to :data:`IT7321_DEFAULT_HOST`; override with
+    ``LAB_EQUIPMENT_IT7321_HOST`` (e.g. ``10.11.9.231`` or a hostname).
+    """
+    return os.getenv(IT7321_HOST_ENV) or IT7321_DEFAULT_HOST
+
+
+def default_port() -> int:
+    """Return the SCPI socket port currently in force."""
+    raw = os.getenv(IT7321_PORT_ENV)
+    if not raw:
+        return IT7321_DEFAULT_PORT
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{IT7321_PORT_ENV} must be an integer, got {raw!r}") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{IT7321_PORT_ENV} is out of range: {port}")
+    return port
+
+
+def default_resource() -> str:
+    """``host:port`` resource string for :meth:`IT7321.connect`."""
+    return f"{default_host()}:{default_port()}"
 
 # Programming guide 1.5: frequency range for the IT7321 models.
 IT7321_FREQ_MIN_HZ = 45.0

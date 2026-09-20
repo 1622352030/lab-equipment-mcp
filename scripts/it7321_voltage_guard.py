@@ -46,10 +46,16 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from lab_equipment_mcp.core.transports.visa import VisaBackend  # noqa: E402
 from lab_equipment_mcp.devices.fluke.fluke_8808a import Fluke8808A  # noqa: E402
+from lab_equipment_mcp.devices.itech.it7321 import (  # noqa: E402
+    default_host,
+    default_port,
+)
 
 DEFAULT_LIMIT_V = 30.0
-DEFAULT_HOST = "192.168.0.125"
-DEFAULT_PORT = 30000
+# The endpoint comes from the driver, so changing the instrument's IP is a
+# one-line edit there (or LAB_EQUIPMENT_IT7321_HOST) rather than here too.
+DEFAULT_HOST = default_host()
+DEFAULT_PORT = default_port()
 DEFAULT_SERIAL = "ASRL11::INSTR"
 
 

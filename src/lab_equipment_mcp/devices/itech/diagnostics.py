@@ -14,9 +14,12 @@ import socket
 from typing import Any
 
 from ...core.host_diagnostics import find_visa_libraries
+from .it7321 import default_host, default_port
 
-DEFAULT_HOST = "192.168.0.125"
-DEFAULT_PORT = 30000
+# Kept as aliases for callers that imported them before the endpoint moved to
+# it7321.py; the values now live there (single source of truth).
+DEFAULT_HOST = default_host()
+DEFAULT_PORT = default_port()
 
 LAN_HINT = (
     "The IT7321 LAN settings are set from the front panel: Shift+Menu, System, "
@@ -89,12 +92,18 @@ def same_subnet(host: str, local_addresses: list[str]) -> bool:
 
 
 def diagnose_host(
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
+    host: str | None = None,
+    port: int | None = None,
     *,
     probe: bool = True,
 ) -> dict[str, Any]:
-    """Report what would stop a LAN connection to the IT7321."""
+    """Report what would stop a LAN connection to the IT7321.
+
+    ``host``/``port`` default to whatever :mod:`it7321` currently reports, so the
+    environment override is honoured at call time rather than at import time.
+    """
+    host = host or default_host()
+    port = port or default_port()
     pyvisa_installed = importlib.util.find_spec("pyvisa") is not None
     visa_libraries = find_visa_libraries()
     addresses = local_ipv4_addresses()

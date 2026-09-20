@@ -19,9 +19,16 @@ from .devices.gw_instek.diagnostics import diagnose_host as diagnose_afg2125_hos
 from .devices.itech.diagnostics import diagnose_host as diagnose_it7321_host
 from .devices.itech.it7321 import (
     IT7321,
+    IT7321_DEFAULT_HOST,
+    IT7321_DEFAULT_PORT,
+    IT7321_HOST_ENV,
     IT7321_LIMIT_ENV,
+    IT7321_PORT_ENV,
     IT7321_RATED_VOLTAGE_V,
     IT7321_TEST_VOLTAGE_LIMIT_V,
+    default_host,
+    default_port,
+    default_resource,
     test_voltage_limit_v,
 )
 from .devices.maynuo.diagnostics import diagnose_host as diagnose_m8811_host
@@ -1708,31 +1715,61 @@ def fluke8808a_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[st
 
 @mcp.tool(name="it7321_diagnose_setup", annotations=READ_ONLY)
 def it7321_diagnose_setup(
-    host: str = "192.168.0.125",
-    port: int = 30000,
+    host: str | None = None,
+    port: int | None = None,
     probe: bool = True,
 ) -> dict[str, Any]:
     """Check the LAN route, the socket port and the identity of an IT7321.
 
+    `host`/`port` default to the configured endpoint (see `it7321_get_endpoint`).
     `probe` sends a read-only `*IDN?` on the SCPI socket. Set it false to avoid
     occupying the instrument's single TCP session.
     """
     return diagnose_it7321_host(host, port, probe=probe)
 
 
+@mcp.tool(name="it7321_get_endpoint", annotations=READ_ONLY)
+def it7321_get_endpoint() -> dict[str, Any]:
+    """Report the LAN endpoint currently in force and where it comes from.
+
+    The address lives in one place (`IT7321_DEFAULT_HOST` in the driver) and can
+    be overridden with `LAB_EQUIPMENT_IT7321_HOST` / `LAB_EQUIPMENT_IT7321_PORT`,
+    so changing the instrument's IP never means editing several files.
+    """
+    import os as _os
+
+    return {
+        "host": default_host(),
+        "port": default_port(),
+        "resource": default_resource(),
+        "default_host": IT7321_DEFAULT_HOST,
+        "default_port": IT7321_DEFAULT_PORT,
+        "host_env": IT7321_HOST_ENV,
+        "host_env_value": _os.getenv(IT7321_HOST_ENV),
+        "port_env": IT7321_PORT_ENV,
+        "port_env_value": _os.getenv(IT7321_PORT_ENV),
+        "note": (
+            "The instrument's own LAN settings are front-panel only; this is the "
+            "address the server dials."
+        ),
+    }
+
+
 @mcp.tool(name="it7321_connect", annotations=STATE_CHANGE)
-def it7321_connect(resource: str = "192.168.0.125:30000", timeout_ms: int = 5000) -> dict[str, Any]:
+def it7321_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, Any]:
     """Connect over the LAN socket and put the instrument into remote mode.
 
-    Accepts `host`, `host:port` or a full `TCPIP0::...::SOCKET` resource. Sends
-    `SYST:REM`, without which the instrument rejects every control command, and
-    locks the front panel until `it7321_disconnect`.
+    `resource` accepts `host`, `host:port` or a full `TCPIP0::...::SOCKET` string
+    and defaults to the configured endpoint. Sends `SYST:REM`, without which the
+    instrument rejects every control command, and locks the front panel until
+    `it7321_disconnect`.
     """
     if not 500 <= timeout_ms <= 30000:
         raise ValueError("timeout_ms must be between 500 and 30000")
-    identity = it7321.connect(resource, timeout_ms)
+    target = resource or default_resource()
+    identity = it7321.connect(target, timeout_ms)
     return {
-        "resource": resource,
+        "resource": target,
         "manufacturer": identity.manufacturer,
         "model": identity.model,
         "version": identity.version,

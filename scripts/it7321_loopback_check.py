@@ -31,6 +31,7 @@ from lab_equipment_mcp.core.transports.visa import VisaBackend  # noqa: E402
 from lab_equipment_mcp.devices.fluke.fluke_8808a import Fluke8808A  # noqa: E402
 from lab_equipment_mcp.devices.itech.it7321 import (  # noqa: E402
     IT7321,
+    default_resource,
     test_voltage_limit_v,
 )
 
@@ -53,7 +54,7 @@ def read_meter(dmm: Fluke8808A, samples: int = 5) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="192.168.0.125:30000", help="IT7321 socket resource")
+    parser.add_argument("--host", default=default_resource(), help="IT7321 socket resource")
     parser.add_argument("--serial", default="ASRL11::INSTR", help="8808A resource")
     parser.add_argument("--points", type=float, nargs="*", default=list(DEFAULT_POINTS))
     parser.add_argument("--frequency", type=float, default=50.0, help="output frequency in Hz")

@@ -15,6 +15,8 @@ Protocol facts encoded in :class:`FakeBackend` come from hardware on 2026-09-20
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from lab_equipment_mcp.core.errors import ScopeError
@@ -26,7 +28,11 @@ from lab_equipment_mcp.devices.itech.it7321 import (
     DIMMER_MODES,
     ENABLE_STATES,
     IT7321,
+    IT7321_DEFAULT_HOST,
+    IT7321_DEFAULT_PORT,
+    IT7321_HOST_ENV,
     IT7321_LIMIT_ENV,
+    IT7321_PORT_ENV,
     IT7321_PROFILE,
     IT7321_RATED_VOLTAGE_V,
     IT7321_TEST_VOLTAGE_LIMIT_V,
@@ -34,6 +40,9 @@ from lab_equipment_mcp.devices.itech.it7321 import (
     PROTECTION_MODES,
     TRIGGER_SOURCES,
     _normalize_choice,
+    default_host,
+    default_port,
+    default_resource,
     parse_error_queue,
     parse_identity,
 )
@@ -136,7 +145,7 @@ class FakeBackend:
 def driver() -> tuple[IT7321, FakeBackend]:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("192.168.0.125:30000")
+    device.connect("10.11.9.231:30000")
     return device, backend
 
 
@@ -185,7 +194,7 @@ def test_connect_enters_remote_mode() -> None:
     """Without SYST:REM the instrument rejects every control command (manual p9)."""
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("192.168.0.125:30000")
+    device.connect("10.11.9.231:30000")
     assert backend.writes[0] == "SYST:REM"
     assert backend.remote is True
 
@@ -193,7 +202,7 @@ def test_connect_enters_remote_mode() -> None:
 def test_disconnect_returns_local_and_drops_the_output() -> None:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("192.168.0.125:30000")
+    device.connect("10.11.9.231:30000")
     device.disconnect()
     assert "OUTP 0" in backend.writes
     assert "SYST:LOC" in backend.writes
@@ -203,8 +212,8 @@ def test_disconnect_returns_local_and_drops_the_output() -> None:
 def test_bare_address_is_normalised_to_a_socket_resource() -> None:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("192.168.0.125:30000")
-    assert backend.resource_name == "TCPIP0::192.168.0.125::30000::SOCKET"
+    device.connect("10.11.9.231:30000")
+    assert backend.resource_name == "TCPIP0::10.11.9.231::30000::SOCKET"
 
 
 def test_commands_before_connect_are_refused() -> None:
@@ -268,7 +277,7 @@ def test_limit_override_is_honoured_by_set_voltage(monkeypatch) -> None:
     monkeypatch.setenv(IT7321_LIMIT_ENV, "5")
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("192.168.0.125:30000")
+    device.connect("10.11.9.231:30000")
     with pytest.raises(ValueError):
         device.set_voltage(6.0)
     assert device.set_voltage(5.0)["readback"] == pytest.approx(5.0)
@@ -531,3 +540,60 @@ def test_list_and_sweep_state_use_enable_disable(driver) -> None:
     assert "LIST:STAT ENABLE" in backend.writes
     assert "SWE:STAT DISABLE" in backend.writes
     assert not any(w in {"LIST:STAT 1", "SWE:STAT 0"} for w in backend.writes)
+
+
+# -- LAN endpoint -----------------------------------------------------------
+#
+# The address used to be repeated in the driver, the diagnostics module, the
+# server and two scripts, so moving the instrument meant finding and editing six
+# places. It now lives in one module and is read through these helpers; the last
+# test below is a static guard against it spreading again.
+
+
+def test_endpoint_comes_from_one_place() -> None:
+    assert default_host() == IT7321_DEFAULT_HOST
+    assert default_port() == IT7321_DEFAULT_PORT
+    assert default_resource() == f"{IT7321_DEFAULT_HOST}:{IT7321_DEFAULT_PORT}"
+
+
+def test_endpoint_honours_the_environment(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_HOST_ENV, "10.11.9.240")
+    monkeypatch.setenv(IT7321_PORT_ENV, "30001")
+    assert default_host() == "10.11.9.240"
+    assert default_port() == 30001
+    assert default_resource() == "10.11.9.240:30001"
+
+
+def test_endpoint_rejects_a_bad_port(monkeypatch) -> None:
+    monkeypatch.setenv(IT7321_PORT_ENV, "not-a-port")
+    with pytest.raises(ValueError):
+        default_port()
+    monkeypatch.setenv(IT7321_PORT_ENV, "70000")
+    with pytest.raises(ValueError):
+        default_port()
+
+
+def test_environment_override_is_read_at_call_time(monkeypatch) -> None:
+    """Setting the variable after import must still take effect."""
+    assert default_host() == IT7321_DEFAULT_HOST
+    monkeypatch.setenv(IT7321_HOST_ENV, "10.11.9.250")
+    assert default_host() == "10.11.9.250"
+
+
+def test_only_the_driver_contains_the_address_literal() -> None:
+    """Static guard: the endpoint literal may appear in exactly one module.
+
+    This is the regression test for the design flaw described above - keeping the
+    literal in one place is the whole point, so it must not creep back into the
+    diagnostics module, the server or the scripts.
+    """
+    root = Path(__file__).resolve().parent.parent
+    literal = f'"{IT7321_DEFAULT_HOST}"'
+    offenders: list[str] = []
+    for folder in ("src", "scripts"):
+        for path in (root / folder).rglob("*.py"):
+            if literal in path.read_text(encoding="utf-8"):
+                offenders.append(path.relative_to(root).as_posix())
+    assert offenders == ["src/lab_equipment_mcp/devices/itech/it7321.py"], (
+        f"the endpoint literal appears in {offenders}; it belongs only in the driver"
+    )
