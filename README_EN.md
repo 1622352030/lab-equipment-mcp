@@ -24,7 +24,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested; LAN VXI-11 and socket 5025 identity, read-back writes, and binary ARB round trip hardware-tested |
 | Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
 | Fluke | [8808A](docs/fluke/8808A.md) | RS-232 (DB9, via a USB-to-serial adapter) | Identity with redacted serial, the two-message reply protocol, every write path (function/range/rate/format/modifier/compare/trigger/save-recall/`*RST`/remote-local), front-panel echo, dual display and closed-loop measurement against an SDG1062X all hardware-verified; external trigger types 2-5, `*TST?` (not implemented on that firmware) and bus SRQ untested |
-| ITECH | [IT7321](docs/itech/IT7321.md) | LAN socket (default port 30000) | Identity with redacted serial, remote/local mode, the single-session LAN protocol, voltage and frequency read-back, a **three-layer 30 V output ceiling** (including the instrument itself rejecting over-voltage), closed-loop measurement by an 8808A (5/10/20/30 V within 1%) and **live over-voltage protection** (output cut in 52 ms) all hardware-verified; list, sweep, phase, current protection and BNC untested |
+| ITECH | [IT7321](docs/itech/IT7321.md) | LAN socket (default port 30000) | Identity with redacted serial, remote/local mode, the single-session LAN protocol, voltage and frequency read-back, a **three-layer 30 V output ceiling** (including the instrument itself rejecting over-voltage), closed-loop measurement by an 8808A (5/10/20/30 V within 1%), **live over-voltage protection** (output cut in 52 ms), **list ladders** (4 steps 5/10/15/20 V), **sweep ladders** (5 V start, 5 V step, 20 V end), **leading- and trailing-edge dimming** (verified by scope sampling), and the instrument's own measurement against the 8808A all hardware-verified; current-protection trip is out of scope this round (no load connected), BNC and three-phase are not fitted to this model, and `VOLT:UNIT` read-back is a firmware limitation |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
 documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.
@@ -631,21 +631,25 @@ continuously and cuts the output on over-voltage; measured at **52 ms** with a l
 - state: `it7321_get_configuration`, `it7321_get_voltage`, `it7321_get_frequency`, `it7321_get_output_state`, `it7321_get_errors`, `it7321_clear_errors`
 - configuration: `it7321_set_voltage_minimum`, `it7321_set_frequency_limits`, `it7321_set_frequency`, `it7321_set_voltage_range`, `it7321_set_voltage_unit`, `it7321_set_phase`, `it7321_set_dimmer_phase`, `it7321_set_dimmer_mode`, `it7321_set_bnc_function`, `it7321_set_list_start_mode`, `it7321_set_current_measure_mode`, `it7321_set_current_protection`, `it7321_clear_protection`
 - measurement: `it7321_measure_voltage`, `it7321_measure_current`, `it7321_measure_power`, `it7321_measure_apparent_power`, `it7321_measure_power_factor`, `it7321_measure_frequency`, `it7321_measure_current_peak`, `it7321_measure_current_peak_maximum`, `it7321_measure_all`, `it7321_fetch_voltage`, `it7321_fetch_current`, `it7321_fetch_power`, `it7321_fetch_frequency`, `it7321_fetch_all`
-- list: `it7321_set_list_state`, `it7321_set_list_count`, `it7321_set_list_step`, `it7321_set_list_slope_voltage`, `it7321_save_list_bank`, `it7321_recall_list`, `it7321_get_list_run`
-- sweep: `it7321_set_sweep_state`, `it7321_configure_sweep`, `it7321_recall_sweep`
+- list: `it7321_set_list_state`, `it7321_set_list_count`, `it7321_set_list_step`, `it7321_get_list_step`, `it7321_set_list_slope_voltage`, `it7321_save_list_bank`, `it7321_recall_list`, `it7321_get_list_run`
+- sweep: `it7321_set_sweep_state`, `it7321_configure_sweep`, `it7321_get_sweep`, `it7321_recall_sweep`
 - trigger and display: `it7321_trigger`, `it7321_set_trigger_source`, `it7321_set_display`, `it7321_set_display_text`, `it7321_clear_display_text`
 - system: `it7321_set_remote`, `it7321_set_local`, `it7321_set_local_lockout`, `it7321_set_beeper`, `it7321_preset`, `it7321_get_power_on_setup`, `it7321_set_power_on_setup`, `it7321_get_scpi_version`
 - common commands: `it7321_clear_status`, `it7321_set_event_status_enable`, `it7321_get_event_status`, `it7321_set_service_request_enable`, `it7321_get_status`, `it7321_operation_complete`, `it7321_wait`, `it7321_reset`, `it7321_save_state`, `it7321_recall_state`, `it7321_self_test`, `it7321_get_options`
 - escape hatch: `it7321_query_scpi`, `it7321_write_scpi`
 
-**78 tools** cover every command group in the nine chapters of the programming guide
+**80 tools** cover every command group in the nine chapters of the programming guide
 plus the IEEE-488.2 common commands. Hardware-verified on firmware `0.16-0.22`:
 identity with redacted serial, LAN socket identity, remote/local mode, voltage and
 frequency read-back, output switching, the error queue, all three layers of the 30 V
-ceiling, closed-loop measurement by an 8808A (5/10/20/30 V within 1%) and live
-over-voltage protection (52 ms). **List and sweep modes, phase/dimmer, current
-protection trips, BNC terminals and `VOLT:UNIT` read-back remain untested** (reasons
-in the device guide). LAN settings are front-panel only.
+ceiling, closed-loop measurement by an 8808A (5/10/20/30 V within 1%), live
+over-voltage protection (52 ms), **list ladders** (4 steps 5/10/15/20 V at 2 s each),
+**sweep ladders** (5 V start, 5 V step, 20 V end, returning to zero), and
+**leading-/trailing-edge dimming** verified from scope samples (both give an RMS of
+V_p/2 with mirrored waveform shapes). **Current-protection trip is out of scope this
+round** (no load connected); BNC and three-phase are **not fitted to this model**;
+external trigger is out of scope; `VOLT:UNIT` read-back is a firmware limitation.
+LAN settings are front-panel only.
 
 [IT7321 guide](docs/itech/IT7321.md).
 

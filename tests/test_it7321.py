@@ -20,11 +20,20 @@ import pytest
 from lab_equipment_mcp.core.errors import ScopeError
 from lab_equipment_mcp.core.interfaces import InterfaceType
 from lab_equipment_mcp.devices.itech.it7321 import (
+    BNC_FUNCTIONS,
+    CURRENT_MEASURE_MODES,
+    CURRENT_MEASURE_RANGES,
+    DIMMER_MODES,
+    ENABLE_STATES,
     IT7321,
     IT7321_LIMIT_ENV,
     IT7321_PROFILE,
     IT7321_RATED_VOLTAGE_V,
     IT7321_TEST_VOLTAGE_LIMIT_V,
+    LIST_START_MODES,
+    PROTECTION_MODES,
+    TRIGGER_SOURCES,
+    _normalize_choice,
     parse_error_queue,
     parse_identity,
 )
@@ -55,6 +64,8 @@ class FakeBackend:
             "PHAS:STAR": 0.0,
             "PHAS:END": 0.0,
             "DIMM": 0.0,
+            "LIST:STAT": "DIS",
+            "SWE:STAT": "DIS",
         }
         self.errors: list[str] = []
 
@@ -85,6 +96,12 @@ class FakeBackend:
             self.state["OUTP"] = 0
         elif command in {"OUTP 1", "OUTP:STAT 1"}:
             self.state["OUTP"] = 1
+        elif command.startswith("LIST:STAT "):
+            # The real instrument lags here; the fake follows immediately so tests
+            # exercise the retry path's happy case rather than a timeout.
+            self.state["LIST:STAT"] = "ENAB" if command.endswith("ENABLE") else "DIS"
+        elif command.startswith("SWE:STAT "):
+            self.state["SWE:STAT"] = "ENAB" if command.endswith("ENABLE") else "DIS"
 
     def query(self, command):
         table = {
@@ -98,6 +115,9 @@ class FakeBackend:
             "CONF:FREQ:MAX?": f"{self.state['CONF:FREQ:MAX']}",
             "SYST:VERS?": "1991.1",
             "TRIG:SOUR?": "BUS",
+            "LIST:STAT?": self.state["LIST:STAT"],
+            "SWE:STAT?": self.state["SWE:STAT"],
+            "CONF:DIMM:MODE?": "OFF",
             "*ESR?": "0",
             "*STB?": "0",
             "*TST?": "0",
@@ -428,3 +448,86 @@ def test_generic_escape_hatch(driver) -> None:
     device.write("SYST:CLE")
     assert backend.writes[-1] == "SYST:CLE"
     assert device.query("SYST:VERS?") == "1991.1"
+
+
+# -- manual parameter values ------------------------------------------------
+#
+# These were wrong once and it mattered: the driver invented `IMMEDIATE` as a
+# trigger source, and used long/short hybrids (`LEADING`, `IMMEDIATE`) that the
+# instrument rejects with `140,Wrong type of parameter`. The programming guide's
+# parameter tables are the authority, so the values are pinned here.
+
+
+def test_choice_values_match_the_manual() -> None:
+    """Long-form, fully upper case - the form with no ambiguity."""
+    assert DIMMER_MODES == ("LEADINGEDGE", "TRAILINGEDGE", "OFF")  # p19
+    assert LIST_START_MODES == ("ON", "OFF", "TRIGGER")  # p19
+    assert TRIGGER_SOURCES == ("MANUAL", "BUS", "EXTERNAL")  # p47
+    assert BNC_FUNCTIONS == ("I-TRIGGER", "I-RI", "O-PHASE", "O-ON")  # p19
+    assert CURRENT_MEASURE_MODES == ("AUTO", "MANUAL")  # p20
+    assert CURRENT_MEASURE_RANGES == ("LOW", "MIDDLE", "HIGH")  # p20
+    assert PROTECTION_MODES == ("DELAY", "IMMEDIATE")  # p17
+    assert ENABLE_STATES == ("ENABLE", "DISABLE")
+
+
+def test_normalize_choice_keeps_hyphens() -> None:
+    """Hyphens are part of the manual's values and must not be rewritten."""
+    assert _normalize_choice("i-trigger", BNC_FUNCTIONS, "function") == "I-TRIGGER"
+    assert _normalize_choice(" o-phase ", BNC_FUNCTIONS, "function") == "O-PHASE"
+    assert _normalize_choice("o-on", BNC_FUNCTIONS, "function") == "O-ON"
+    # Underscores are a common way to mistype those values and must be rejected
+    # rather than silently converted.
+    with pytest.raises(ValueError):
+        _normalize_choice("I_TRIGGER", BNC_FUNCTIONS, "function")
+
+
+@pytest.mark.parametrize(
+    ("bad", "allowed", "what"),
+    [
+        ("LEADING", DIMMER_MODES, "mode"),  # hybrid: neither LEAD nor LEADINGEDGE
+        ("TRAIL", DIMMER_MODES, "mode"),  # hybrid: the short form is TRA, not TRAIL
+        ("LEAD", DIMMER_MODES, "mode"),  # a valid short form, but not what we send
+        ("MANU", TRIGGER_SOURCES, "source"),
+        ("IMM", PROTECTION_MODES, "mode"),
+    ],
+)
+def test_hybrid_and_short_forms_are_rejected(bad, allowed, what) -> None:
+    """Only the long form is accepted, so no ambiguous spelling can slip through.
+
+    `TRAIL` deserves its own note: `TRAilingedge`'s upper-case prefix is `TRA`,
+    so `TRAIL` is a hybrid that the instrument rejects with `140,Wrong type of
+    parameter`. It shipped once and this test exists because of that.
+    """
+    with pytest.raises(ValueError):
+        _normalize_choice(bad, allowed, what)
+
+
+def test_trigger_source_rejects_the_invented_immediate(driver) -> None:
+    """`IMMEDIATE` is the trigger command's own name, not a source value."""
+    device, backend = driver
+    with pytest.raises(ValueError):
+        device.set_trigger_source("IMMEDIATE")
+    assert not any(w.startswith("TRIG:SOUR ") for w in backend.writes)
+    device.set_trigger_source("manual")
+    assert "TRIG:SOUR MANUAL" in backend.writes
+
+
+def test_dimmer_mode_sends_the_long_form(driver) -> None:
+    device, backend = driver
+    device.set_dimmer_mode("leadingedge")
+    assert "CONF:DIMM:MODE LEADINGEDGE" in backend.writes
+    device.set_dimmer_mode("trailingedge")
+    assert "CONF:DIMM:MODE TRAILINGEDGE" in backend.writes
+    for bad in ("LEADING", "TRAIL"):
+        with pytest.raises(ValueError):
+            device.set_dimmer_mode(bad)
+
+
+def test_list_and_sweep_state_use_enable_disable(driver) -> None:
+    """The manual parameter is DISable|ENABle, not 0|1."""
+    device, backend = driver
+    device.set_list_state(enabled=True)
+    device.set_sweep_state(enabled=False)
+    assert "LIST:STAT ENABLE" in backend.writes
+    assert "SWE:STAT DISABLE" in backend.writes
+    assert not any(w in {"LIST:STAT 1", "SWE:STAT 0"} for w in backend.writes)

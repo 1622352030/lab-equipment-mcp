@@ -62,15 +62,34 @@ IT7321_DEFAULT_HOST = "192.168.0.125"
 IT7321_FREQ_MIN_HZ = 45.0
 IT7321_FREQ_MAX_HZ = 500.0
 
-VOLTAGE_UNITS = ("VPP", "VRMS", "DBM")
-VOLTAGE_RANGES = ("AUTO", "HIGH")
-TRIGGER_SOURCES = ("IMMEDIATE", "BUS", "EXTERNAL", "MANUAL")
-DIMMER_MODES = ("LEADING", "TRAILING", "OFF")
-LIST_START_MODES = ("ON_OFF", "TRIGGER")
-CURRENT_MEASURE_MODES = ("AUTO", "MANUAL")
-CURRENT_MEASURE_RANGES = ("HIGH", "MIDDLE", "LOW")
-PROTECTION_MODES = ("DELAY", "IMMEDIATE")
-BNC_FUNCTIONS = ("I_TRIGGER", "I_RI", "O_SYNC", "O_ON")
+# --------------------------------------------------------------------------
+# Parameter values
+# --------------------------------------------------------------------------
+#
+# Taken from the IT7300 Programming Guide V3.2 parameter tables and written in
+# each keyword's **long form, fully upper case**. SCPI accepts either the long
+# form or the short form (the manual's upper-case prefix), but never a mixture:
+#
+#   long    short   forbidden
+#   LEADINGEDGE   LEAD    LEADING
+#   TRAILINGEDGE  TRA     TRAIL          <- note: the short form is TRA, not TRAIL
+#   DELAY         DEL     -
+#
+# Two of those hybrids were shipped in an earlier revision and were rejected by
+# the instrument with ``140,Wrong type of parameter``. Using the long form
+# everywhere avoids having to infer where a keyword's upper-case prefix ends.
+VOLTAGE_UNITS = ("VPP", "VRMS", "DBM")  # p3
+VOLTAGE_RANGES = ("AUTO", "HIGH")  # p24
+TRIGGER_SOURCES = ("MANUAL", "BUS", "EXTERNAL")  # p47: MANUal|BUS|EXTern
+DIMMER_MODES = ("LEADINGEDGE", "TRAILINGEDGE", "OFF")  # p19
+LIST_START_MODES = ("ON", "OFF", "TRIGGER")  # p19: ON/OFF|TRIGGER
+CURRENT_MEASURE_MODES = ("AUTO", "MANUAL")  # p20: AUTO|MANUal
+CURRENT_MEASURE_RANGES = ("LOW", "MIDDLE", "HIGH")  # p20: LOW|MIDDle|HIGH
+PROTECTION_MODES = ("DELAY", "IMMEDIATE")  # p17: DELay|IMMediate
+BNC_FUNCTIONS = ("I-TRIGGER", "I-RI", "O-PHASE", "O-ON")  # p19
+ENABLE_STATES = ("ENABLE", "DISABLE")  # DISable|ENABle
+POWER_ON_SETUPS = ("RST", "SAV0")  # p8: RST|SAV0
+LIST_DWELL_UNITS = ("SECOND", "MINUTE", "HOUR")  # p38: SECond|MINUte|HOUR
 
 IT7321_SESSION = SessionConfig(
     read_termination="\n",
@@ -179,9 +198,18 @@ def parse_error_queue(response: str) -> dict[str, Any]:
 
 
 def _normalize_choice(value: str, allowed: tuple[str, ...], what: str) -> str:
-    normalized = value.strip().upper().replace("-", "_")
+    """Validate a parameter against the manual's list and return the manual spelling.
+
+    Only whitespace and letter case are normalised. Hyphens and slashes are part
+    of the manual's values (``I-TRigger``, ``ON/OFF``) and must survive, so they
+    are **not** rewritten - an earlier version replaced ``-`` with ``_`` and would
+    have corrupted exactly those values.
+    """
+    normalized = " ".join(value.split()).upper()
     if normalized not in allowed:
-        raise ValueError(f"{what} must be one of {', '.join(allowed)}, got {value!r}")
+        raise ValueError(
+            f"{what} must be one of {', '.join(allowed)}, got {value!r}"
+        )
     return normalized
 
 
@@ -655,10 +683,43 @@ class IT7321:
 
     # -- 10. list mode -----------------------------------------------------
 
+    def _state_readback(
+        self, query: str, expect_enabled: bool, *, settle_s: float | None = None
+    ) -> str:
+        """Read a state bit that lags behind the write, retrying until it agrees.
+
+        Measured on hardware: ``LIST:STAT?`` and ``SWE:STAT?`` return the
+        **previous** state if read immediately after the set command (even after
+        the 0.35 s used elsewhere), so a naive read-back reports the opposite of
+        what was just written. This waits longer and retries, and returns the last
+        value seen so a caller can tell whether the change was confirmed.
+        """
+        want = "ENAB" if expect_enabled else "DIS"
+        pause = self._settle_s if settle_s is None else settle_s
+        time.sleep(pause)
+        seen = ""
+        for _ in range(5):
+            seen = self._query(query).strip()
+            if seen.upper().startswith(want):
+                return seen
+            time.sleep(max(pause, 0.4))
+        return seen
+
     def set_list_state(self, *, enabled: bool = True) -> dict[str, Any]:
-        """``LIST:STATe`` - enable or leave list mode."""
-        self._write(f"LIST:STAT {1 if enabled else 0}")
-        return {"list_state": enabled}
+        """``LIST:STATe`` - enable or leave list mode.
+
+        The manual's parameter is ``DISable|ENABle``, so ``ENABLE``/``DISABLE`` is
+        sent rather than ``1``/``0``. ``confirmed`` reports whether the read-back
+        agreed with the request; see :meth:`_state_readback`.
+        """
+        self._write(f"LIST:STAT {'ENABLE' if enabled else 'DISABLE'}")
+        want = "ENAB" if enabled else "DIS"
+        readback = self._state_readback("LIST:STAT?", enabled)
+        return {
+            "list_state": enabled,
+            "readback": readback,
+            "confirmed": readback.upper().startswith(want),
+        }
 
     def set_list_count(
         self, *, steps: int | None = None, repeat: int | None = None
@@ -685,17 +746,25 @@ class IT7321:
         *,
         volts: float | None = None,
         hertz: float | None = None,
-        slope: float | None = None,
+        slope_ms: float | None = None,
         dwell_s: float | None = None,
+        dwell_unit: str = "SECOND",
     ) -> dict[str, Any]:
         """``LIST:STEP:*`` - configure one list step.
 
-        The voltage is checked against the same limit as :meth:`set_voltage`,
-        because a list step is just another way to command an output voltage.
+        Step numbers run 0..99 and each value is sent as ``<step>,<value>``
+        (manual p36-38). The voltage is checked against the same limit as
+        :meth:`set_voltage`, because a list step is just another way to command
+        an output voltage.
+
+        ``dwell_unit`` is applied per step before the dwell time, because the
+        manual marks both parameters of ``LIST:STEP:DWELl:UNIT`` as required and
+        the unit otherwise depends on whatever the instrument was left with.
+        ``slope_ms`` is in milliseconds, as the manual specifies (p37).
         """
         index = int(step)
-        if index < 1:
-            raise ValueError("step must be 1 or greater")
+        if not 0 <= index <= 99:
+            raise ValueError("step must be between 0 and 99")
         limit = test_voltage_limit_v()
         result: dict[str, Any] = {"step": index}
         if volts is not None:
@@ -714,13 +783,30 @@ class IT7321:
                 )
             self._write(f"LIST:STEP:FREQ {index},{value}")
             result["hertz"] = value
-        if slope is not None:
-            self._write(f"LIST:STEP:SLOP {index},{float(slope)}")
-            result["slope"] = float(slope)
+        if slope_ms is not None:
+            self._write(f"LIST:STEP:SLOP {index},{float(slope_ms)}")
+            result["slope_ms"] = float(slope_ms)
         if dwell_s is not None:
+            unit = _normalize_choice(dwell_unit, LIST_DWELL_UNITS, "dwell_unit")
+            self._write(f"LIST:STEP:DWEL:UNIT {index},{unit}")
             self._write(f"LIST:STEP:DWEL {index},{float(dwell_s)}")
             result["dwell_s"] = float(dwell_s)
+            result["dwell_unit"] = unit
         return result
+
+    def list_step_query(self, step: int) -> dict[str, Any]:
+        """Read back one list step's voltage, frequency, slope and dwell."""
+        index = int(step)
+        if not 0 <= index <= 99:
+            raise ValueError("step must be between 0 and 99")
+        return {
+            "step": index,
+            "volts": self._query(f"LIST:STEP:VOLT? {index}").strip(),
+            "hertz": self._query(f"LIST:STEP:FREQ? {index}").strip(),
+            "slope_ms": self._query(f"LIST:STEP:SLOP? {index}").strip(),
+            "dwell": self._query(f"LIST:STEP:DWEL? {index}").strip(),
+            "dwell_unit": self._query(f"LIST:STEP:DWEL:UNIT? {index}").strip(),
+        }
 
     def set_list_slope_voltage(
         self, step: int, *, start_v: float, end_v: float, seconds: float
@@ -767,9 +853,19 @@ class IT7321:
     # -- 11. sweep ---------------------------------------------------------
 
     def set_sweep_state(self, *, enabled: bool = True) -> dict[str, Any]:
-        """``SWEep:STATe`` - enable or leave sweep mode."""
-        self._write(f"SWE:STAT {1 if enabled else 0}")
-        return {"sweep_state": enabled}
+        """``SWEep:STATe`` - enable or leave sweep mode.
+
+        Like ``LIST:STATe`` the manual parameter is ``DISable|ENABle``, so
+        ``ENABLE``/``DISABLE`` is sent rather than ``1``/``0``.
+        """
+        self._write(f"SWE:STAT {'ENABLE' if enabled else 'DISABLE'}")
+        want = "ENAB" if enabled else "DIS"
+        readback = self._state_readback("SWE:STAT?", enabled)
+        return {
+            "sweep_state": enabled,
+            "readback": readback,
+            "confirmed": readback.upper().startswith(want),
+        }
 
     def configure_sweep(
         self,
@@ -778,11 +874,18 @@ class IT7321:
         end_v: float,
         step_v: float,
         step_s: float,
+        step_unit: str = "SECOND",
         start_hz: float | None = None,
         end_hz: float | None = None,
         step_hz: float | None = None,
     ) -> dict[str, Any]:
-        """``SWEep:STARt/STEP/END`` - voltage (and optional frequency) sweep."""
+        """``SWEep:STARt/STEP/END`` - voltage (and optional frequency) sweep.
+
+        All three voltage endpoints are checked against the output limit. The
+        dwell unit is set before the time, as the manual lists
+        ``SWEep:STEP:TIMe:UNIT`` separately (p44) and the unit otherwise depends
+        on the instrument's previous state.
+        """
         limit = test_voltage_limit_v()
         for label, value in (("start_v", start_v), ("end_v", end_v)):
             if abs(float(value)) > limit:
@@ -790,14 +893,23 @@ class IT7321:
         self._write(f"SWE:STAR:VOLT {float(start_v)}")
         self._write(f"SWE:END:VOLT {float(end_v)}")
         self._write(f"SWE:STEP:VOLT {float(step_v)}")
+        unit = _normalize_choice(step_unit, LIST_DWELL_UNITS, "step_unit")
+        self._write(f"SWE:STEP:TIM:UNIT {unit}")
         self._write(f"SWE:STEP:TIM {float(step_s)}")
         result: dict[str, Any] = {
             "start_v": float(start_v),
             "end_v": float(end_v),
             "step_v": float(step_v),
             "step_s": float(step_s),
+            "step_unit": unit,
         }
         if start_hz is not None and end_hz is not None and step_hz is not None:
+            for label, value in (("start_hz", start_hz), ("end_hz", end_hz), ("step_hz", step_hz)):
+                if not IT7321_FREQ_MIN_HZ <= float(value) <= IT7321_FREQ_MAX_HZ:
+                    raise ValueError(
+                        f"{label} must be within {IT7321_FREQ_MIN_HZ}-"
+                        f"{IT7321_FREQ_MAX_HZ} Hz"
+                    )
             self._write(f"SWE:STAR:FREQ {float(start_hz)}")
             self._write(f"SWE:END:FREQ {float(end_hz)}")
             self._write(f"SWE:STEP:FREQ {float(step_hz)}")
@@ -805,6 +917,20 @@ class IT7321:
                 {"start_hz": float(start_hz), "end_hz": float(end_hz), "step_hz": float(step_hz)}
             )
         return result
+
+    def sweep_query(self) -> dict[str, Any]:
+        """Read back the configured sweep."""
+        return {
+            "start_v": self._query("SWE:STAR:VOLT?").strip(),
+            "end_v": self._query("SWE:END:VOLT?").strip(),
+            "step_v": self._query("SWE:STEP:VOLT?").strip(),
+            "step_time": self._query("SWE:STEP:TIM?").strip(),
+            "step_unit": self._query("SWE:STEP:TIM:UNIT?").strip(),
+            "start_hz": self._query("SWE:STAR:FREQ?").strip(),
+            "end_hz": self._query("SWE:END:FREQ?").strip(),
+            "step_hz": self._query("SWE:STEP:FREQ?").strip(),
+            "state": self._query("SWE:STAT?").strip(),
+        }
 
     def recall_sweep(self, bank: int) -> dict[str, Any]:
         """``SWEep:RECall`` - recall a stored sweep."""

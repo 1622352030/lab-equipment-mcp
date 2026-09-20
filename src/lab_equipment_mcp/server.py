@@ -2046,11 +2046,30 @@ def it7321_set_list_step(
     step: int,
     volts: float | None = None,
     hertz: float | None = None,
-    slope: float | None = None,
+    slope_ms: float | None = None,
     dwell_s: float | None = None,
+    dwell_unit: str = "SECOND",
 ) -> dict[str, Any]:
-    """`LIST:STEP:*` - configure one list step. Voltage is limit-checked."""
-    return it7321.set_list_step(step, volts=volts, hertz=hertz, slope=slope, dwell_s=dwell_s)
+    """`LIST:STEP:*` - configure one list step (step number 0-99).
+
+    Voltage is checked against the 30 V limit. `dwell_unit` is one of
+    SECOND/MINUTE/HOUR and is applied per step, as the manual requires both
+    parameters of `LIST:STEP:DWELl:UNIT`. Slope is in milliseconds.
+    """
+    return it7321.set_list_step(
+        step,
+        volts=volts,
+        hertz=hertz,
+        slope_ms=slope_ms,
+        dwell_s=dwell_s,
+        dwell_unit=dwell_unit,
+    )
+
+
+@mcp.tool(name="it7321_get_list_step", annotations=READ_ONLY)
+def it7321_get_list_step(step: int) -> dict[str, Any]:
+    """Read back one list step's voltage, frequency, slope and dwell settings."""
+    return it7321.list_step_query(step)
 
 
 @mcp.tool(name="it7321_set_list_slope_voltage", annotations=STATE_CHANGE)
@@ -2094,20 +2113,32 @@ def it7321_configure_sweep(
     end_v: float,
     step_v: float,
     step_s: float,
+    step_unit: str = "SECOND",
     start_hz: float | None = None,
     end_hz: float | None = None,
     step_hz: float | None = None,
 ) -> dict[str, Any]:
-    """`SWE:STAR/STEP/END` - voltage (and optional frequency) sweep. Voltages are limit-checked."""
+    """`SWE:STAR/STEP/END` - voltage (and optional frequency) sweep.
+
+    Start and end voltages are checked against the 30 V limit. `step_unit` is one
+    of SECOND/MINUTE/HOUR and is applied before the step time.
+    """
     return it7321.configure_sweep(
         start_v=start_v,
         end_v=end_v,
         step_v=step_v,
         step_s=step_s,
+        step_unit=step_unit,
         start_hz=start_hz,
         end_hz=end_hz,
         step_hz=step_hz,
     )
+
+
+@mcp.tool(name="it7321_get_sweep", annotations=READ_ONLY)
+def it7321_get_sweep() -> dict[str, Any]:
+    """Read back the configured sweep parameters."""
+    return it7321.sweep_query()
 
 
 @mcp.tool(name="it7321_recall_sweep", annotations=STATE_CHANGE)

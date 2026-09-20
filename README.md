@@ -23,7 +23,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC、LAN VXI-11/Socket、选配 GPIB | SDG1062X 的 USB 双通道波形、模式和 ARB 已完成示波器闭环验收；LAN VXI-11 与 Socket 5025 已完成身份、读写回读和二进制 ARB 往返验证 |
 | Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
 | Fluke（福禄克） | [8808A](docs/fluke/8808A.md) | RS-232（DB9，经 USB 转串口适配器） | 身份与序列号脱敏、双消息应答协议、全部写操作（功能/量程/速率/格式/调节器/比对/触发/保存调用/`*RST`/远程本地）、面板回显、双显示及 SDG1062X 接收闭环均已实机验证；外触发类型 2-5、`*TST?`（该固件未实现）与总线 SRQ 未实测 |
-| ITECH（艾德克斯） | [IT7321](docs/itech/IT7321.md) | LAN Socket（默认端口 30000） | 身份与序列号脱敏、远程/本地模式、LAN 单会话协议、电压与频率读写回、**三层 30 V 输出上限**（含设备侧拒绝超压）、《8808A》接收闭环（5/10/20/30 V 误差 <1%）与**真实带电过压监控**（52 ms 切断输出）已实机验证；列表、扫描、相位、电流保护与 BNC 未实测 |
+| ITECH（艾德克斯） | [IT7321](docs/itech/IT7321.md) | LAN Socket（默认端口 30000） | 身份与序列号脱敏、远程/本地模式、LAN 单会话协议、电压与频率读写回、**三层 30 V 输出上限**（含设备侧拒绝超压）、8808A 接收闭环（5/10/20/30 V 误差 <1%）、**真实带电过压监控**（52 ms 切断输出）、**列表阶梯**（4 步 5/10/15/20 V）、**扫描阶梯**（起始 5 V／步进 5 V／终止 20 V）、**前沿与后沿调光削波**（示波器采样验证）、电源自身测量与 8808A 相对比对均已实机验证；电流保护跳闸需用户确认后做，BNC 与三相「本型号没有」，`VOLT:UNIT` 回读为固件限制，详见设备指南 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。
@@ -447,6 +447,15 @@ AFG-2125 的 `APPLy` 指令会自动开启输出，因此其标准工具不使�
 高风险通用 SCPI 时，必须分别设置 `AGILENT33500B_ALLOW_UNSAFE=1` 或
 `SDG1062X_ALLOW_UNSAFE=1`，并同时传入 `confirm_unsafe=true`。
 
+IT7321 交流电源的输出电压被**硬性限制在 30 V**（这是测试阶段的安全上限，不是设备
+规格），三层同时生效：驱动拒绝任何超限值且**不发出命令**、下发 `CONF:VOLT:MAX 30`
+由设备自己兜底（实测超限回 `120,Parameter overflowed`）、开启输出前读回 `VOLT?` 与
+`CONF:VOLT:MAX?` 双重确认。上限是单一常量，可用环境变量
+`LAB_EQUIPMENT_IT7321_MAX_VOLTAGE` 覆盖，**放开前必须得到用户明确同意**。
+`it7321_write_scpi` 会绕过以上检查，因此要求 `confirm_unsafe=true`。另有独立的过压
+监控脚本 `scripts/it7321_voltage_guard.py`：持续读取 8808A 的交流电压，超阈值立即
+关闭输出并降压（实测 52 ms），万用表连续读失败同样触发切断。
+
 ## Agilent/Keysight 33500B 系列工具
 
 系列驱动将 USBTMC、LAN VXI-11、LAN SCPI Socket 5025 和 GPIB 建模为独立
@@ -694,21 +703,24 @@ TCP 会话**。
 - 状态：`it7321_get_configuration`、`it7321_get_voltage`、`it7321_get_frequency`、`it7321_get_output_state`、`it7321_get_errors`、`it7321_clear_errors`
 - 配置：`it7321_set_voltage_minimum`、`it7321_set_frequency_limits`、`it7321_set_frequency`、`it7321_set_voltage_range`、`it7321_set_voltage_unit`、`it7321_set_phase`、`it7321_set_dimmer_phase`、`it7321_set_dimmer_mode`、`it7321_set_bnc_function`、`it7321_set_list_start_mode`、`it7321_set_current_measure_mode`、`it7321_set_current_protection`、`it7321_clear_protection`
 - 量测：`it7321_measure_voltage`、`it7321_measure_current`、`it7321_measure_power`、`it7321_measure_apparent_power`、`it7321_measure_power_factor`、`it7321_measure_frequency`、`it7321_measure_current_peak`、`it7321_measure_current_peak_maximum`、`it7321_measure_all`、`it7321_fetch_voltage`、`it7321_fetch_current`、`it7321_fetch_power`、`it7321_fetch_frequency`、`it7321_fetch_all`
-- 列表：`it7321_set_list_state`、`it7321_set_list_count`、`it7321_set_list_step`、`it7321_set_list_slope_voltage`、`it7321_save_list_bank`、`it7321_recall_list`、`it7321_get_list_run`
-- 扫描：`it7321_set_sweep_state`、`it7321_configure_sweep`、`it7321_recall_sweep`
+- 列表：`it7321_set_list_state`、`it7321_set_list_count`、`it7321_set_list_step`、`it7321_get_list_step`、`it7321_set_list_slope_voltage`、`it7321_save_list_bank`、`it7321_recall_list`、`it7321_get_list_run`
+- 扫描：`it7321_set_sweep_state`、`it7321_configure_sweep`、`it7321_get_sweep`、`it7321_recall_sweep`
 - 触发与显示：`it7321_trigger`、`it7321_set_trigger_source`、`it7321_set_display`、`it7321_set_display_text`、`it7321_clear_display_text`
 - 系统：`it7321_set_remote`、`it7321_set_local`、`it7321_set_local_lockout`、`it7321_set_beeper`、`it7321_preset`、`it7321_get_power_on_setup`、`it7321_set_power_on_setup`、`it7321_get_scpi_version`
 - 通用命令：`it7321_clear_status`、`it7321_set_event_status_enable`、`it7321_get_event_status`、`it7321_set_service_request_enable`、`it7321_get_status`、`it7321_operation_complete`、`it7321_wait`、`it7321_reset`、`it7321_save_state`、`it7321_recall_state`、`it7321_self_test`、`it7321_get_options`
 - 逃生口：`it7321_query_scpi`、`it7321_write_scpi`
 
 工具覆盖编程指南九章的命令组（系统、配置、频率、相位、电压、输出、量测、列表、
-扫描、触发、显示）及 IEEE-488.2 通用命令，共 **78 个**。
+扫描、触发、显示）及 IEEE-488.2 通用命令，共 **80 个**。
 
 固件 `0.16-0.22` 上实机验证：身份与序列号脱敏、LAN Socket 身份、远程/本地模式、
 电压与频率读写回、输出开关、错误队列、三层 30 V 上限（含设备侧拒绝超压）、
-`8808A` 接收闭环（5/10/20/30 V，误差 <1%）、真实带电过压监控（52 ms 切断）。
-**列表与扫描模式、相位与调光、电流保护跳闸、BNC 端子、`VOLT:UNIT` 回读未实测**，
-原因见设备指南。LAN 参数只能面板设置，命令不可读写。
+`8808A` 接收闭环（5/10/20/30 V，误差 <1%）、真实带电过压监控（52 ms 切断）、
+**列表阶梯**（4 步 5/10/15/20 V，每步 2 s）、**扫描阶梯**（起始 5 V／步进 5 V／
+终止 20 V，扫完自动归零）、**前沿／后沿调光削波**（用示波器采样比对，RMS 均为
+$V_p/2$）、**电源自身测量与 8808A 相对比对**（5～20 V 偏差 <1%）。
+**电流保护跳闸未做（需用户确认）**；BNC 与三相「本型号没有」；外部触发本次范围外；
+`VOLT:UNIT` 回读为固件限制。LAN 参数只能面板设置，命令不可读写。
 
 [IT7321 使用说明](docs/itech/IT7321.md)。
 
