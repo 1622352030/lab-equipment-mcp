@@ -404,6 +404,30 @@ def test_list_step_voltage_is_limited(driver) -> None:
     assert "LIST:STEP:VOLT 1,12.0" in backend.writes
 
 
+def test_list_step_always_sends_the_slope(driver) -> None:
+    """The slope must never be left to whatever the instrument was left with.
+
+    Regression test for a real failure: `LIST:STEP:SLOP` was only sent when the
+    caller passed slope_ms, so a stale value survived a re-configuration. On
+    hardware a leftover slope of 800 (which the firmware interprets as seconds)
+    made every step ramp at ~0.4 % of target - the output looked dead while the
+    commands that were sent gave no hint why. Only combined testing caught this,
+    because single-function tests happened to reset every field each time.
+    """
+    device, backend = driver
+    device.set_list_step(0, volts=5.0)
+    assert "LIST:STEP:SLOP 0,0.0" in backend.writes
+
+    device.set_list_step(1, volts=5.0, slope_ms=250.0)
+    assert "LIST:STEP:SLOP 1,250.0" in backend.writes
+
+
+def test_list_step_rejects_a_negative_slope(driver) -> None:
+    device, _ = driver
+    with pytest.raises(ValueError, match="slope"):
+        device.set_list_step(0, volts=5.0, slope_ms=-1.0)
+
+
 def test_sweep_voltages_are_limited(driver) -> None:
     device, _ = driver
     with pytest.raises(ValueError, match="limit"):

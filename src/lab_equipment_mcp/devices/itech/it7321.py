@@ -790,7 +790,7 @@ class IT7321:
         *,
         volts: float | None = None,
         hertz: float | None = None,
-        slope_ms: float | None = None,
+        slope_ms: float = 0.0,
         dwell_s: float | None = None,
         dwell_unit: str = "SECOND",
     ) -> dict[str, Any]:
@@ -801,10 +801,18 @@ class IT7321:
         :meth:`set_voltage`, because a list step is just another way to command
         an output voltage.
 
-        ``dwell_unit`` is applied per step before the dwell time, because the
-        manual marks both parameters of ``LIST:STEP:DWELl:UNIT`` as required and
-        the unit otherwise depends on whatever the instrument was left with.
-        ``slope_ms`` is in milliseconds, as the manual specifies (p37).
+        ``dwell_unit`` is applied per step before the dwell time and ``slope_ms``
+        is always sent, because both would otherwise depend on whatever the
+        instrument was left with. That is not a theoretical concern: a stale
+        ``LIST:STEP:SLOP`` of 800 survives a re-configuration, and since the
+        firmware treats the value as *seconds* (see the guide), a step that dwells
+        for three seconds then ramps at 0.4 % of target - the output looks dead
+        and nothing in the commands that were sent explains why. Sending the slope
+        every time makes the step fully determined by the arguments.
+
+        Note that ``volts``/``hertz``/``dwell_s`` still follow partial-update
+        semantics: omit one and the instrument keeps its previous value for that
+        field. Call :meth:`list_step_query` to see the complete state of a step.
         """
         index = int(step)
         if not 0 <= index <= 99:
@@ -827,9 +835,11 @@ class IT7321:
                 )
             self._write(f"LIST:STEP:FREQ {index},{value}")
             result["hertz"] = value
-        if slope_ms is not None:
-            self._write(f"LIST:STEP:SLOP {index},{float(slope_ms)}")
-            result["slope_ms"] = float(slope_ms)
+        slope = float(slope_ms)
+        if slope < 0:
+            raise ValueError("slope_ms must not be negative")
+        self._write(f"LIST:STEP:SLOP {index},{slope}")
+        result["slope_ms"] = slope
         if dwell_s is not None:
             unit = _normalize_choice(dwell_unit, LIST_DWELL_UNITS, "dwell_unit")
             self._write(f"LIST:STEP:DWEL:UNIT {index},{unit}")
