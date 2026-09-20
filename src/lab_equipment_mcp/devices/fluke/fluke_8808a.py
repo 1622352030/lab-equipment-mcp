@@ -348,9 +348,13 @@ class Fluke8808A:
         self._echo = echo
         try:
             identity_text = self.backend.connect(resource_name, timeout_ms, interface.session)
-            # The identification query is acknowledged separately (verified on
-            # hardware), so read that acknowledgement now. Otherwise the first
-            # command the driver sends would read it instead of its own reply.
+            if self._echo:
+                # ``VisaBackend.connect`` identifies the instrument with an atomic
+                # write-then-read. With front-panel echo on that first read returns
+                # the echoed command itself, so the real identification is the next
+                # message. Verified on hardware 2026-09-20.
+                identity_text = self.backend.read()
+            # The identification query is acknowledged separately either way.
             self._read_acknowledgement("*IDN?")
         except Exception:
             self._echo = False

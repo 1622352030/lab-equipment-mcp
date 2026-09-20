@@ -84,8 +84,13 @@ class FakeBackend:
         self.resource_name = resource
         self.interface_type = detect_interface_type(resource)
         self.connected_session = session
-        # The real backend identifies the instrument with an atomic query, which
-        # consumes the data message and leaves the acknowledgement queued.
+        # The real backend identifies the instrument with an atomic query. With
+        # echo off that consumes the data message and leaves the acknowledgement;
+        # with echo on it consumes the echoed command instead, and both the data
+        # and the acknowledgement are still queued.
+        if self.echo:
+            self.queue.extend([self.responses["*IDN?"], self.ack])
+            return "*IDN?"
         self.queue.append(self.ack)
         return self.responses["*IDN?"]
 
@@ -763,6 +768,15 @@ def test_echo_on_strips_before_parsing_a_reading() -> None:
     device = Fluke8808A(backend)  # type: ignore[arg-type]
     device.connect("ASRL11::INSTR", echo=True)
     assert device.measure_primary()["primary"] == pytest.approx(1.2345)
+
+
+def test_echo_on_connect_reads_identity_past_the_echo() -> None:
+    """With echo on, the backend's atomic identification returns the echo itself."""
+    backend = FakeBackend(echo=True)
+    device = Fluke8808A(backend)  # type: ignore[arg-type]
+    identity = device.connect("ASRL11::INSTR", echo=True)
+    assert identity.model == "8808A"
+    assert backend.queue == []
 
 
 def test_echo_defaults_to_off() -> None:
