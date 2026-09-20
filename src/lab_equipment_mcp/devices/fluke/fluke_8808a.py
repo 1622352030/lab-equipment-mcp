@@ -126,12 +126,17 @@ RATE_SPEEDS = {
     "f": "100 readings/s (fast)",
 }
 
-# Manual 4-22 table 4-16: output format 2 units.
+# Manual 4-22 table 4-16: output format 2 units. The table lists eight rows and
+# omits the combined AC+DC functions, but hardware was measured appending
+# ``VACDC`` when the VACDC function is selected, so the combined units are
+# accepted too (2026-09-20).
 FORMAT2_UNITS = {
     "VDC": "VDC",
     "VAC": "VAC",
+    "VACDC": "VACDC",
     "ADC": "ADC",
     "AAC": "AAC",
+    "AACDC": "AACDC",
     "OHMS": "OHMS",
     "HZ": "HZ",
     "DIODE": "VDC",
@@ -469,14 +474,19 @@ class Fluke8808A:
         return {"event_status": self._command("*ESR?", query=True).strip()}
 
     def identify(self) -> dict[str, str]:
-        """``*IDN?`` - manufacturer, model, serial and version."""
+        """``*IDN?`` - manufacturer, model, version; the serial is redacted.
+
+        The serial is returned as the literal string ``redacted`` to match the
+        other drivers in this repository (see ``M8811.identity`` and
+        ``sdg1062x_identify``); ``serial_query`` redacts it the same way.
+        """
         response = self._command("*IDN?", query=True)
         parsed = parse_identity(response)
         self._identity = parsed
         return {
             "manufacturer": parsed.manufacturer,
             "model": parsed.model,
-            "serial": parsed.serial,
+            "serial": "redacted",
             "version": parsed.version,
             "identity": parsed.redacted(),
         }
@@ -491,9 +501,29 @@ class Fluke8808A:
         return {"complete": self._command("*OPC?", query=True).strip()}
 
     def reset(self) -> dict[str, Any]:
-        """``*RST`` - power-on reset (manual 3-24 table 3-9 lists the state)."""
-        self._command("*RST")
+        """``*RST`` - power-on reset (manual 4-15 table 4-8).
+
+        Hardware does acknowledge this command, but only once the reset has
+        finished: measured at **2.8 s** on 2026-09-20, far slower than any other
+        command. The default 5 s port timeout covers it. The acknowledgement
+        must still be read, or it shifts the next transaction.
+
+        The resulting state is the factory power-on configuration (manual 3-24
+        table 3-9). RS-232 settings are explicitly not affected.
+        """
+        self._execute("*RST")
         return {"reset": True}
+
+    def self_test(self) -> dict[str, Any]:
+        """``*TST?`` - self test.
+
+        Manual 4-15 table 4-8 documents this command and states it always
+        returns 0, but firmware 1.1r D2.0 answers ``?>`` (a syntax error),
+        so the command is not implemented on this build. The call is kept so the
+        behaviour is visible to a caller rather than silently absent.
+        """
+        raw = self._command("*TST?", query=True).strip()
+        return {"result": raw, "passed": raw == "0"}
 
     def set_service_request_enable(self, value: int) -> dict[str, Any]:
         """``*SRE <value>`` - service request enable register, 0..255."""
@@ -521,11 +551,6 @@ class Fluke8808A:
         """``*TRG`` - trigger a measurement from the bus."""
         self._command("*TRG")
         return {"triggered": True}
-
-    def self_test(self) -> dict[str, Any]:
-        """``*TST?`` - self test; the manual states it always returns 0."""
-        raw = self._command("*TST?", query=True).strip()
-        return {"result": raw, "passed": raw == "0"}
 
     def wait(self) -> dict[str, Any]:
         """``*WAI`` - wait for pending operations."""

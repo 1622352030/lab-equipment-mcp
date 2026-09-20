@@ -1623,8 +1623,8 @@ def fluke8808a_set_print_rate(rate: int) -> dict[str, Any]:
 
 
 @mcp.tool(name="fluke8808a_get_serial", annotations=READ_ONLY)
-def fluke8808a_get_serial() -> dict[str, str]:
-    """`SERIAL?` - instrument serial number, redacted in the reply."""
+def fluke8808a_get_serial() -> dict[str, Any]:
+    """`SERIAL?` - serial number presence and length, with the value redacted."""
     return fluke8808a.serial_query()
 
 

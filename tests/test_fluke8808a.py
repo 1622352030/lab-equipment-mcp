@@ -106,6 +106,7 @@ class FakeBackend:
             return None
         if command not in self.responses:
             # A non-query command: the instrument answers with the ack alone.
+            # *RST is slow on hardware (2.8 s) but still answered.
             self.queue.append(self.ack)
             return None
         if self.echo:
@@ -316,10 +317,12 @@ def test_parse_identity_rejects_malformed_response() -> None:
         parse_identity("FLUKE, 8808A")
 
 
-def test_identify_returns_serial_and_redacted_form(driver) -> None:
+def test_identify_redacts_the_serial(driver) -> None:
+    """The identify tool must not leak the serial, matching the other drivers."""
     device, _ = driver
     result = device.identify()
-    assert result["serial"] == "1234567"
+    assert result["serial"] == "redacted"
+    assert "1234567" not in str(result)
     assert result["identity"].endswith("<redacted>,1.1r D2.0")
 
 
@@ -353,6 +356,14 @@ def test_parse_reading_format2_carries_units() -> None:
     result = parse_reading("+1.2345E+0 VDC, +6.7890E+3 ADC")
     assert result["primary_unit"] == "VDC"
     assert result["secondary_unit"] == "ADC"
+
+
+def test_parse_reading_accepts_combined_acdc_units() -> None:
+    """Hardware appends VACDC, which table 4-16 does not list."""
+    result = parse_reading("+1.2345E+0 VACDC")
+    assert result["primary_unit"] == "VACDC"
+    result = parse_reading("+1.2345E+0 AACDC")
+    assert result["primary_unit"] == "AACDC"
 
 
 def test_parse_reading_rejects_unknown_unit() -> None:
@@ -419,7 +430,21 @@ def test_status_byte_decodes_mav(driver) -> None:
     assert result["master_summary"] is False
 
 
+def test_reset_is_acknowledged_and_consumed(driver) -> None:
+    """*RST answers eventually (2.8 s on hardware); the ack must be read."""
+    device, backend = driver
+    device.reset()
+    assert backend.writes[-1] == "*RST"
+    assert backend.queue == []
+
+
 def test_self_test_reports_pass_for_zero(driver) -> None:
+    """The fake backend follows the manual here (always 0).
+
+    Firmware 1.1r D2.0 does not implement `*TST?` and answers `?>`; see the
+    device guide. The driver simply forwards whatever comes back, so on the real
+    instrument this call raises a syntax-error ScopeError.
+    """
     device, _ = driver
     assert device.self_test()["passed"] is True
 
