@@ -76,7 +76,11 @@ def test_lan_probe_reports_an_unreachable_host(monkeypatch) -> None:
         raise OSError("connection timed out")
 
     monkeypatch.setattr(diagnostics.socket, "create_connection", unreachable)
-    result = diagnostics.probe_lan_socket("10.11.9.231")
+    # 192.0.2.0/24 is TEST-NET-1 (RFC 5737), reserved for documentation, so this
+    # example address can never collide with a real instrument. An earlier
+    # revision used a live lab address here and it ended up clashing with the
+    # IT7321 installed on the same bench.
+    result = diagnostics.probe_lan_socket("192.0.2.10")
     assert result["reachable"] is False
     assert result["identity"] is None
     assert "timed out" in result["error"]
@@ -144,6 +148,6 @@ def test_diagnose_reports_an_unanswered_lan_probe(monkeypatch) -> None:
             "error": "OSError: timed out",
         },
     )
-    result = diagnostics.diagnose_host(None, lan_hosts=["10.11.9.231"])
+    result = diagnostics.diagnose_host(None, lan_hosts=["192.0.2.10"])
     assert result["lan_ready"] is False
     assert any("subnet" in item for item in result["recommendations"])

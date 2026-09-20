@@ -23,7 +23,8 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Agilent/Keysight | [DSO-X 2012A](docs/agilent/DSOX2012A.md) | USBTMC, optional LAN VXI-11, optional GPIB | USBTMC identity, representative read-only commands, and SDG1062X CH1/CH2 receiver closed-loop hardware-tested; complete guide SCPI/binary entry points implemented |
 | Siglent | [SDG1000X / SDG1062X](docs/siglent/SDG1000X.md) | USBTMC, LAN VXI-11/socket, optional GPIB | SDG1062X USB dual-channel waveforms, modes, and ARB closed-loop tested; LAN VXI-11 and socket 5025 identity, read-back writes, and binary ARB round trip hardware-tested |
 | Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
-| Fluke | [8808A](docs/fluke/8808A.md) | RS-232 (DB9, via a USB-to-serial adapter) | Identity with redacted serial, the two-message reply protocol, and function/range/rate/format/modifier/compare/trigger/measurement/remote-local all verified by read-back on hardware; `*RST`, `Save`/`Call`, panel lock, external trigger and print mode not accepted on hardware (reasons in the device guide) |
+| Fluke | [8808A](docs/fluke/8808A.md) | RS-232 (DB9, via a USB-to-serial adapter) | Identity with redacted serial, the two-message reply protocol, every write path (function/range/rate/format/modifier/compare/trigger/save-recall/`*RST`/remote-local), front-panel echo, dual display and closed-loop measurement against an SDG1062X all hardware-verified; external trigger types 2-5, `*TST?` (not implemented on that firmware) and bus SRQ untested |
+| ITECH | [IT7321](docs/itech/IT7321.md) | LAN socket (default port 30000) | Identity with redacted serial, remote/local mode, the single-session LAN protocol, voltage and frequency read-back, a **three-layer 30 V output ceiling** (including the instrument itself rejecting over-voltage), closed-loop measurement by an 8808A (5/10/20/30 V within 1%), **live over-voltage protection** (output cut in 52 ms), **list ladders** (4 steps 5/10/15/20 V), **sweep ladders** (5 V start, 5 V step, 20 V end), **leading- and trailing-edge dimming** (verified by scope sampling), and the instrument's own measurement against the 8808A all hardware-verified; current-protection trip is out of scope this round (no load connected), BNC and three-phase are not fitted to this model, and `VOLT:UNIT` read-back is a firmware limitation |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
 documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.
@@ -43,6 +44,13 @@ bits, parity, echo) are front-panel only and can be neither read nor changed ove
 the bus, so `fluke8808a_connect` defaults to the factory 9600/8/N/1 and takes the
 panel values as arguments when they differ. See the
 [8808A guide](docs/fluke/8808A.md).
+
+The IT7321 is controlled over its LAN socket on **port 30000** (not 5025). Address,
+mask, gateway and port are front-panel only (`Shift`+`Menu`, `System`,
+`Communication`, `LAN`) and cannot be read or written over the bus. The PC needs an
+address in the same subnet, and the instrument **accepts only one TCP session at a
+time**. Remote control also requires `SYST:REM` first - without it every set command
+is rejected while queries still answer. See the [IT7321 guide](docs/itech/IT7321.md).
 
 ## Project Structure
 
@@ -72,6 +80,9 @@ src/lab_equipment_mcp/
 |   `-- fluke/
 |       |-- diagnostics.py       # FTDI/COM and VISA ASRL diagnostics
 |       `-- fluke_8808a.py       # 8808A functions, ranges, modifiers, measurements
+|   `-- itech/
+|       |-- diagnostics.py       # LAN subnet check and socket identity probe
+|       `-- it7321.py            # IT7321 AC source SCPI and 30 V output ceiling
 `-- server.py                    # MCP tool registration
 ```
 
@@ -136,6 +147,9 @@ Device driver requirements:
   CP210x based "USB to RS-232" products all work, while a plain TTL breakout does
   not, because the 8808A's DB9 is standard RS-232. Voltage measurements use the
   `VΩ` and `LO` terminals.
+- IT7321: a network cable into the instrument LAN port, a PC address in the same
+  subnet, and the default socket port 30000 reachable. The instrument accepts only
+  one TCP session, so the over-voltage guard owns it while that script runs.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
   interface, and close vendor applications or other VISA/serial tools that hold an
   exclusive session.
@@ -581,6 +595,63 @@ mode, and `*RST` takes 2.8 s and does not reset the output format. The serial
 number is redacted in both `*IDN?` and `SERIAL?`. See the
 [8808A guide](docs/fluke/8808A.md) for protocol details, how to open the
 secondary display, and the complete feature comparison table.
+
+## ITECH IT7321 Tools
+
+The IT7321 is a 300 V / 3 A / 300 VA programmable AC source controlled over its LAN
+socket using standard SCPI (not a private command set). Remote control requires
+`SYST:REM` first - without it the instrument rejects every set command while queries
+still answer - and `SYST:LOC` releases the panel. **Only one TCP session is accepted
+at a time.**
+
+**The AC output voltage is hard-capped at 30 V.** The cap is a testing-phase safety
+limit set by the user, not an instrument rating, and it is enforced in three
+independent places:
+
+1. **instrument** - `CONF:VOLT:MAX 30`; the instrument itself rejects over-voltage
+   (measured: `VOLT 45` answers `120,Parameter overflowed`)
+2. **driver** - `set_voltage()` refuses anything above the limit and **sends nothing**
+3. **pre-enable** - `set_output(True)` reads back `VOLT?` and `CONF:VOLT:MAX?` and
+   refuses if either exceeds the limit
+
+The ceiling is a **single constant** (`IT7321_TEST_VOLTAGE_LIMIT_V`) with an
+environment override (`LAB_EQUIPMENT_IT7321_MAX_VOLTAGE`), so lifting it is one edit
+in one place; `it7321_get_voltage_limit` reports the value in force and its source.
+**Raising it requires the user's explicit agreement**, and `clamp_voltage_ceiling`
+refuses to set the instrument ceiling above it so the layers cannot drift apart.
+`it7321_write_scpi` bypasses these checks by nature, so it requires
+`confirm_unsafe=True`.
+
+A separate over-voltage guard (`scripts/it7321_voltage_guard.py`) reads the 8808A
+continuously and cuts the output on over-voltage; measured at **52 ms** with a live
+10 V output against a 5 V threshold. Consecutive meter read failures also trip it.
+
+- `it7321_diagnose_setup`, `it7321_connect`, `it7321_disconnect`, `it7321_identify`, `it7321_get_endpoint`
+- **safety**: `it7321_get_voltage_limit`, `it7321_set_voltage`, `it7321_set_output`, `it7321_clamp_voltage_ceiling`
+- state: `it7321_get_configuration`, `it7321_get_voltage`, `it7321_get_frequency`, `it7321_get_output_state`, `it7321_get_errors`, `it7321_clear_errors`
+- configuration: `it7321_set_voltage_minimum`, `it7321_set_frequency_limits`, `it7321_set_frequency`, `it7321_set_voltage_range`, `it7321_set_voltage_unit`, `it7321_set_phase`, `it7321_set_dimmer_phase`, `it7321_set_dimmer_mode`, `it7321_set_bnc_function`, `it7321_set_list_start_mode`, `it7321_set_current_measure_mode`, `it7321_set_current_protection`, `it7321_clear_protection`
+- measurement: `it7321_measure_voltage`, `it7321_measure_current`, `it7321_measure_power`, `it7321_measure_apparent_power`, `it7321_measure_power_factor`, `it7321_measure_frequency`, `it7321_measure_current_peak`, `it7321_measure_current_peak_maximum`, `it7321_measure_all`, `it7321_fetch_voltage`, `it7321_fetch_current`, `it7321_fetch_power`, `it7321_fetch_frequency`, `it7321_fetch_all`
+- list: `it7321_set_list_state`, `it7321_set_list_count`, `it7321_set_list_step`, `it7321_get_list_step`, `it7321_set_list_slope_voltage`, `it7321_save_list_bank`, `it7321_recall_list`, `it7321_get_list_run`
+- sweep: `it7321_set_sweep_state`, `it7321_configure_sweep`, `it7321_get_sweep`, `it7321_recall_sweep`
+- trigger and display: `it7321_trigger`, `it7321_set_trigger_source`, `it7321_set_display`, `it7321_set_display_text`, `it7321_clear_display_text`
+- system: `it7321_set_remote`, `it7321_set_local`, `it7321_set_local_lockout`, `it7321_set_beeper`, `it7321_preset`, `it7321_get_power_on_setup`, `it7321_set_power_on_setup`, `it7321_get_scpi_version`
+- common commands: `it7321_clear_status`, `it7321_set_event_status_enable`, `it7321_get_event_status`, `it7321_set_service_request_enable`, `it7321_get_status`, `it7321_operation_complete`, `it7321_wait`, `it7321_reset`, `it7321_save_state`, `it7321_recall_state`, `it7321_self_test`, `it7321_get_options`
+- escape hatch: `it7321_query_scpi`, `it7321_write_scpi`
+
+**80 tools** cover every command group in the nine chapters of the programming guide
+plus the IEEE-488.2 common commands. Hardware-verified on firmware `0.16-0.22`:
+identity with redacted serial, LAN socket identity, remote/local mode, voltage and
+frequency read-back, output switching, the error queue, all three layers of the 30 V
+ceiling, closed-loop measurement by an 8808A (5/10/20/30 V within 1%), live
+over-voltage protection (52 ms), **list ladders** (4 steps 5/10/15/20 V at 2 s each),
+**sweep ladders** (5 V start, 5 V step, 20 V end, returning to zero), and
+**leading-/trailing-edge dimming** verified from scope samples (both give an RMS of
+V_p/2 with mirrored waveform shapes). **Current-protection trip is out of scope this
+round** (no load connected); BNC and three-phase are **not fitted to this model**;
+external trigger is out of scope; `VOLT:UNIT` read-back is a firmware limitation.
+LAN settings are front-panel only.
+
+[IT7321 guide](docs/itech/IT7321.md).
 
 ## Add Another Device
 

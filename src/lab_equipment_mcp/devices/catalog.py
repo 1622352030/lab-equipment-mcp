@@ -7,6 +7,7 @@ from .agilent.dsox2012a import DSOX2012A_PROFILE
 from .agilent.series_33500b import AGILENT_33500B_PROFILE
 from .fluke.fluke_8808a import FLUKE_8808A_PROFILE
 from .gw_instek.afg_2125 import AFG2125_PROFILE
+from .itech.it7321 import IT7321_PROFILE
 from .maynuo.m8811 import M8811_PROFILE
 from .siglent.sdg_1000x import SIGLENT_SDG1000X_PROFILE
 from .tektronix.dpo2012b import DPO2012B_PROFILE
@@ -19,6 +20,7 @@ DEVICE_PROFILES = (
     DSOX2012A_PROFILE,
     M8811_PROFILE,
     FLUKE_8808A_PROFILE,
+    IT7321_PROFILE,
 )
 
 
