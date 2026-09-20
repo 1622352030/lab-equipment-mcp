@@ -12,13 +12,14 @@ For recurring failure patterns from the AFG-2125 implementation, read
 
 ## Stage gates
 
-Four checkpoints each require an artefact before the next phase starts. The workflow below says
+Five checkpoints each require an artefact before the next phase starts. The workflow below says
 what to do; the gates make each prerequisite provable rather than assumed. Skipping a gate is a
 failed run even when the code works, and a gate is passed by producing its artefact, never by
 stating that the work was done.
 
 | Gate | Before | Required artefact | Reviewed by |
 | --- | --- | --- | --- |
+| G0 Rule map | any work on the task | every applicable rule from this skill, its references, and the user's standing preferences, each mapped to a concrete action, deliverable and status | user glance |
 | G1 Manual evidence card | writing any code | interface differences and model restrictions, each with a page number, read from rendered pages | user glance |
 | G2 Blast-radius list | touching `core/` or any shared code | every caller, its transport, whether it can be verified now, and the rollback if not | user |
 | G3 Coverage matrix | claiming an interface is "tested" | feature group by interface, with unrun cells marked unverified | self |
@@ -26,14 +27,22 @@ stating that the work was done.
 
 Templates, pass conditions, and a worked G1 example: [gates.md](references/gates.md).
 
-These gates exist because three failures recurred while adding LAN support to the SDG1062X:
+These gates exist because four failures recurred while adding LAN support to the SDG1062X:
 reading the manual as extracted text only (missing a unit and availability marks that appear
 only in rendered tables), widening a shared read path in a way that also changed two unrelated
-oscilloscopes, and reporting a sampled subset as a tested interface. All three were caught by
-the user, not by self-review — which is why the artefacts, not the intentions, are the gate.
+oscilloscopes, reporting a sampled subset as a tested interface, and — most instructive — meeting
+rules that were already written down but never turned into actions for the task at hand. That last
+one is why G0 exists: reading a rule is not applying it, and rules spread across this skill, its
+references and the user's standing preferences do not assemble themselves into a task plan. G0
+compiles them into one reviewable table, so a missing row is visible instead of silent. All four
+were caught by the user, not by self-review — which is why the artefacts, not the intentions, are
+the gate.
 
 ## Workflow
 
+0. Produce the **G0 rule map** before anything else: every rule that applies to this task, from this
+   skill, its references, and the user's standing preferences, each with a concrete action, a
+   deliverable and a status. Ask no question whose answer is already a row in that table.
 1. Inspect the repository, `README.md`, `src/lab_equipment_mcp/core/`, existing device drivers,
    tests, and the device documentation tree. Check the current branch and worktree before edits.
 2. Obtain the user manual and programmer/programming manual. Ask the user to download protected or
