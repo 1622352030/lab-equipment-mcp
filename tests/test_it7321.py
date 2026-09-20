@@ -145,7 +145,7 @@ class FakeBackend:
 def driver() -> tuple[IT7321, FakeBackend]:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("10.11.9.231:30000")
+    device.connect(default_resource())
     return device, backend
 
 
@@ -194,7 +194,7 @@ def test_connect_enters_remote_mode() -> None:
     """Without SYST:REM the instrument rejects every control command (manual p9)."""
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("10.11.9.231:30000")
+    device.connect(default_resource())
     assert backend.writes[0] == "SYST:REM"
     assert backend.remote is True
 
@@ -202,7 +202,7 @@ def test_connect_enters_remote_mode() -> None:
 def test_disconnect_returns_local_and_drops_the_output() -> None:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("10.11.9.231:30000")
+    device.connect(default_resource())
     device.disconnect()
     assert "OUTP 0" in backend.writes
     assert "SYST:LOC" in backend.writes
@@ -212,8 +212,10 @@ def test_disconnect_returns_local_and_drops_the_output() -> None:
 def test_bare_address_is_normalised_to_a_socket_resource() -> None:
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("10.11.9.231:30000")
-    assert backend.resource_name == "TCPIP0::10.11.9.231::30000::SOCKET"
+    device.connect(default_resource())
+    assert backend.resource_name == (
+        f"TCPIP0::{IT7321_DEFAULT_HOST}::{IT7321_DEFAULT_PORT}::SOCKET"
+    )
 
 
 def test_commands_before_connect_are_refused() -> None:
@@ -277,7 +279,7 @@ def test_limit_override_is_honoured_by_set_voltage(monkeypatch) -> None:
     monkeypatch.setenv(IT7321_LIMIT_ENV, "5")
     backend = FakeBackend()
     device = IT7321(backend, settle_s=0)  # type: ignore[arg-type]
-    device.connect("10.11.9.231:30000")
+    device.connect(default_resource())
     with pytest.raises(ValueError):
         device.set_voltage(6.0)
     assert device.set_voltage(5.0)["readback"] == pytest.approx(5.0)
