@@ -1,9 +1,10 @@
 """Fluke 8808A RS-232 discovery and host diagnostics.
 
 The 8808A has no USB port; it reaches the host through a USB-to-RS-232 adapter.
-The adapter in use for this driver is an FTDI FT232R (``VID_0403`` /
-``PID_6001``), but any working adapter is acceptable, so the report lists every
-serial port and merely flags which ones are FTDI.
+Any such adapter is acceptable as long as it presents an RS-232 level interface
+rather than raw TTL, so the report lists every serial port and flags the USB
+bridge chips it recognises instead of filtering to one vendor. The adapter used
+during acceptance was an FTDI FT232R.
 """
 
 from __future__ import annotations
@@ -18,14 +19,31 @@ from ...core.host_diagnostics import find_visa_libraries
 from ...core.interfaces import InterfaceType
 from ...core.transports.visa import VisaBackend
 
-FTDI_VENDOR_ID = "0403"
-FTDI_PRODUCT_IDS = {"6001", "6010", "6011", "6014", "6015"}
+# (vendor id, product ids, label) for common USB-to-serial bridges. A plain TTL
+# breakout built on one of these is not suitable for the 8808A's RS-232 port;
+# only the level-shifted "USB to RS-232" product is.
+USB_SERIAL_BRIDGES: tuple[tuple[str, frozenset[str], str], ...] = (
+    ("0403", frozenset({"6001", "6010", "6011", "6014", "6015"}), "FTDI"),
+    ("1A86", frozenset({"7523", "5523", "55D4"}), "WCH CH340/CH341"),
+    ("067B", frozenset({"2303", "23A3", "23D3"}), "Prolific PL2303"),
+    ("10C4", frozenset({"EA60", "EA70", "EA71"}), "Silicon Labs CP210x"),
+)
 
 FACTORY_SETTINGS_REMINDER = (
     "8808A factory terminal settings are 9600 baud, 8 data bits, no parity and 1 stop "
     "bit (manual 4-4 table 4-1). They are set from the front panel only and cannot be "
     "read back over the bus, so pass any non-default values to connect()."
 )
+
+
+def _bridge_label(vendor_id: str | None, product_id: str | None) -> str | None:
+    """Name the USB bridge chip, when it is one this module knows."""
+    if not vendor_id:
+        return None
+    for vid, pids, label in USB_SERIAL_BRIDGES:
+        if vid == vendor_id and (product_id in pids if product_id else False):
+            return label
+    return None
 
 
 def windows_serial_ports() -> list[dict[str, Any]]:
@@ -63,7 +81,7 @@ def windows_serial_ports() -> list[dict[str, Any]]:
                 "visa_resource": f"ASRL{port_match.group(1)}::INSTR",
                 "description": name_match.group(1).strip() if name_match else None,
                 "usb_id": f"VID_{vid}&PID_{pid}" if vid and pid else None,
-                "is_ftdi": bool(vid == FTDI_VENDOR_ID and pid in FTDI_PRODUCT_IDS),
+                "usb_serial_bridge": _bridge_label(vid, pid),
             }
         )
     return ports
@@ -90,7 +108,7 @@ def discover_serial_resources(backend: VisaBackend | None = None) -> list[str]:
 def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
     """Report everything that could stop an RS-232 connection to the 8808A."""
     ports = windows_serial_ports()
-    ftdi_ports = [port for port in ports if port["is_ftdi"]]
+    bridge_ports = [port for port in ports if port["usb_serial_bridge"]]
     visa_libraries = find_visa_libraries()
     pyvisa_installed = importlib.util.find_spec("pyvisa") is not None
     matched: list[str] = []
@@ -104,9 +122,11 @@ def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
     recommendations: list[str] = []
     if not ports:
         recommendations.append("Connect the USB-to-RS-232 adapter; no serial port is present.")
-    elif not ftdi_ports:
+    elif not bridge_ports:
         recommendations.append(
-            "No FTDI adapter detected; pass the intended ASRL resource explicitly."
+            "No recognised USB-to-serial bridge found. Pass the intended ASRL resource "
+            "explicitly, and confirm the adapter provides RS-232 levels: a plain TTL "
+            "breakout cannot drive this port."
         )
     if len(ports) > 1:
         recommendations.append(
@@ -128,7 +148,7 @@ def diagnose_host(backend: VisaBackend | None = None) -> dict[str, Any]:
         "pyvisa_installed": pyvisa_installed,
         "visa_libraries": visa_libraries,
         "serial_ports": ports,
-        "ftdi_ports": ftdi_ports,
+        "usb_bridge_ports": bridge_ports,
         "matched_resources": matched,
         "auto_selectable_resource": matched[0] if len(matched) == 1 else None,
         "visa_error": visa_error,

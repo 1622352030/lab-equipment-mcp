@@ -131,8 +131,10 @@ Device driver requirements:
 - M8811: Maynuo M133 or a verified USB-TTL adapter, M131 before standard RS-232, or
   M132 before RS-485, plus a VISA runtime exposing the selected COM port as ASRL.
   Never connect the rear TTL DB9 directly to standard RS-232 voltage levels.
-- 8808A: any working USB-to-RS-232 adapter (FTDI FT232R on the machine used here),
-  plus a VISA runtime exposing that COM port as ASRL. Voltage measurements use the
+- 8808A: any working USB-to-RS-232 adapter, plus a VISA runtime exposing that COM
+  port as ASRL. The adapter must provide RS-232 levels - FTDI, CH340, PL2303 and
+  CP210x based "USB to RS-232" products all work, while a plain TTL breakout does
+  not, because the 8808A's DB9 is standard RS-232. Voltage measurements use the
   `VΩ` and `LO` terminals.
 - Other instruments: install the VISA, virtual COM, or vendor driver needed by their
   interface, and close vendor applications or other VISA/serial tools that hold an
