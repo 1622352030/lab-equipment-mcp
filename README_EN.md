@@ -748,16 +748,22 @@ none**.
 
 - `it8813_diagnose_setup`, `it8813_connect`, `it8813_disconnect`, `it8813_identify`, `it8813_get_endpoint`
 - **safety**: `it8813_set_input`, `it8813_set_input_short`, `it8813_set_current`, `it8813_set_power`, `it8813_set_current_protection`, `it8813_set_power_protection`, `it8813_clear_protection`
-- state: `it8813_get_settings`, `it8813_get_errors`, `it8813_clear_errors`, `it8813_clear_system`, `it8813_press_key`, `it8813_get_identity_info`, `it8813_self_test`, `it8813_get_status_registers`, `it8813_set_status_enable`, `it8813_status_preset`
+- state: `it8813_get_settings`, `it8813_get_errors`, `it8813_clear_errors`, `it8813_clear_system`, `it8813_press_key`, `it8813_get_identity_info`, `it8813_self_test`, `it8813_get_status_registers`, `it8813_set_status_enable`, `it8813_status_preset`, `it8813_get_display_mode`, `it8813_get_power_on_setup`
 - system: `it8813_reset`, `it8813_preset`, `it8813_set_remote`, `it8813_set_display_text`, `it8813_set_display_mode`, `it8813_save_state`, `it8813_recall_state`
-- function and input: `it8813_set_function`, `it8813_get_function`, `it8813_set_function_mode`, `it8813_get_input`, `it8813_set_input_timer`, `it8813_set_transient_state`
-- current: `it8813_get_current`, `it8813_set_current_range`, `it8813_get_current_protection`, `it8813_set_current_slew`, `it8813_set_current_transient`
-- voltage: `it8813_set_voltage`, `it8813_get_voltage`, `it8813_set_voltage_range`, `it8813_set_voltage_on`, `it8813_set_voltage_latch`, `it8813_set_voltage_transient`
-- resistance: `it8813_set_resistance`, `it8813_get_resistance`, `it8813_set_resistance_range`, `it8813_set_resistance_transient`, `it8813_set_resistance_features`
-- power: `it8813_set_power`, `it8813_get_power`, `it8813_set_power_range`, `it8813_get_power_protection`, `it8813_set_power_config`, `it8813_set_power_transient`
-- measurement: `it8813_measure_voltage`, `it8813_measure_current`, `it8813_measure_power`, `it8813_measure_all`, `it8813_fetch_voltage`, `it8813_fetch_current`, `it8813_fetch_power`, `it8813_fetch_voltage_max`, `it8813_fetch_voltage_min`, `it8813_fetch_current_max`, `it8813_fetch_current_min`, `it8813_get_measurement_info`
-- trigger / trace / list / sense: `it8813_trigger`, `it8813_set_trigger_source`, `it8813_set_trigger_timer`, `it8813_set_trace`, `it8813_get_trace_settings`, `it8813_clear_trace`, `it8813_read_trace`, `it8813_set_list`, `it8813_set_list_step`, `it8813_get_list_step`, `it8813_get_list_settings`, `it8813_save_list`, `it8813_recall_list`, `it8813_set_sense_average`
+- function and input: `it8813_set_function`, `it8813_get_function`, `it8813_set_function_mode`, `it8813_get_input`, `it8813_set_input_timer`, `it8813_get_input_timer`, `it8813_set_transient_state`
+- current: `it8813_get_current`, `it8813_set_current_range`, `it8813_get_current_range_bounds`, `it8813_get_current_protection`, `it8813_set_current_slew`, `it8813_get_current_slew`, `it8813_set_current_transient`, `it8813_get_current_transient`
+- voltage: `it8813_set_voltage`, `it8813_get_voltage`, `it8813_set_voltage_range`, `it8813_get_voltage_range_auto`, `it8813_get_voltage_range_bounds`, `it8813_set_voltage_on`, `it8813_get_voltage_on`, `it8813_set_voltage_latch`, `it8813_get_voltage_latch`, `it8813_set_voltage_transient`, `it8813_get_voltage_transient`
+- resistance: `it8813_set_resistance`, `it8813_get_resistance`, `it8813_set_resistance_range`, `it8813_get_resistance_range_bounds`, `it8813_set_resistance_transient`, `it8813_get_resistance_transient`, `it8813_set_resistance_features`, `it8813_get_resistance_features`
+- power: `it8813_set_power`, `it8813_get_power`, `it8813_set_power_range`, `it8813_get_power_range_bounds`, `it8813_get_power_protection`, `it8813_set_power_config`, `it8813_get_power_config`, `it8813_set_power_transient`, `it8813_get_power_transient`
+- measurement: `it8813_measure_voltage`, `it8813_measure_current`, `it8813_measure_power`, `it8813_measure_all`, `it8813_measure_voltage_max`, `it8813_measure_voltage_min`, `it8813_measure_current_max`, `it8813_measure_current_min`, `it8813_fetch_voltage`, `it8813_fetch_current`, `it8813_fetch_power`, `it8813_fetch_voltage_max`, `it8813_fetch_voltage_min`, `it8813_fetch_current_max`, `it8813_fetch_current_min`, `it8813_get_measurement_info`
+- trigger / trace / list / sense: `it8813_trigger`, `it8813_set_trigger_source`, `it8813_set_trigger_timer`, `it8813_get_trigger_timer`, `it8813_set_trace`, `it8813_get_trace_settings`, `it8813_clear_trace`, `it8813_read_trace`, `it8813_set_list`, `it8813_set_list_step`, `it8813_get_list_step`, `it8813_get_list_settings`, `it8813_save_list`, `it8813_recall_list`, `it8813_set_sense_average`, `it8813_get_sense_average`
 - **complete entry point**: `it8813_query_scpi`, `it8813_write_scpi` (the latter requires `confirm_unsafe=true`)
+
+Every setting a tool can **write** also has a tool that reads it back: 23 read-back tools
+were added in that round (`it8813_*` went from 84 to 107), because `POWer:CONFig` (the
+hardware power clamp) and `VOLTage:ON` (the level the input switches on at) could be
+written through MCP and read through nothing. The guard is
+`tests/test_it8813_tools.py::test_every_driver_readback_is_reachable_from_a_tool`.
 
 See the [IT8813 guide](docs/itech/IT8813.md).
 
