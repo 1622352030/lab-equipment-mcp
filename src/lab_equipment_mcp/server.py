@@ -2733,10 +2733,13 @@ def it8813_get_input() -> dict[str, Any]:
 
 @mcp.tool(name="it8813_set_input_short", annotations=STATE_CHANGE_DESTRUCTIVE)
 def it8813_set_input_short(enabled: bool) -> dict[str, Any]:
-    """`INPut:SHORt[:STATe]` - sink the maximum current of the present range (printed p40).
+    """`INPut:SHORt[:STATe]` - short the input terminals (printed p40).
 
-    A deliberate short. Refused while the input is off, because shorting a live source
-    with the input disabled has no meaning and asking for it is more likely a mistake.
+    Measured on the bench, this unit does **not** sink current in this state: with 5 V across
+    the terminals it drew 0.0 A. What it does is lock the instrument - `INPut:STATe ON` was
+    ignored (the read-back stayed 0) and `questionable condition` read 24578 until
+    `it8813_clear_protection` was called. The guide's "largest current of the operating range"
+    wording did not reproduce on this firmware. Refused while the input is off.
     """
     return it8813.set_input_short(enabled)
 
@@ -3594,7 +3597,7 @@ def it8813_query_scpi(command: str) -> dict[str, Any]:
     text = command.strip()
     if not text.endswith("?"):
         raise ValueError("it8813_query_scpi expects a query ending in '?'")
-    return {"command": text, "response": it8813._query(text)}
+    return {"command": text, "response": it8813.query_raw(text)}
 
 
 @mcp.tool(name="it8813_write_scpi", annotations=STATE_CHANGE_DESTRUCTIVE)
@@ -3614,7 +3617,7 @@ def it8813_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, A
     text = command.strip()
     if text.endswith("?"):
         raise ValueError("it8813_write_scpi expects a setting command, not a query")
-    it8813.write(text)
+    it8813.write_raw(text)
     return {"command": text}
 
 

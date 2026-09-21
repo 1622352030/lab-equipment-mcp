@@ -1215,3 +1215,15 @@ def test_fetch_extremes_use_the_documented_spelling(
     assert backend.queries == [command]
     assert result[key] == float(value)
 
+
+
+def test_raw_entry_points_delegate_to_the_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`write_raw`/`query_raw` exist so the generic tools need not touch the private pair."""
+    load = IT8813(FakeBackend())
+    sent: list[str] = []
+    monkeypatch.setattr(load, "_write", sent.append)
+    monkeypatch.setattr(load, "_query", lambda command: "5")
+
+    load.write_raw("CURRent 0.1")
+    assert sent == ["CURRent 0.1"]
+    assert load.query_raw("POWer:CONFig:LEVel?") == "5"

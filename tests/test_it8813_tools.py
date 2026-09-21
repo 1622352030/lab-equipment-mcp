@@ -446,3 +446,42 @@ def test_get_and_measure_tools_are_annotated_read_only(tools: dict) -> None:
         assert annotations is not None, f"{name} has no annotations"
         assert annotations.readOnlyHint is True, f"{name} should be read-only"
     assert checked > 40, f"only {checked} read-back tools were checked"
+
+
+# -- the success path of the raw entry points ------------------------------
+
+
+def test_raw_write_tool_sends_the_command_once_confirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: the tool called `it8813.write`, a method the driver never had.
+
+    Both existing write-tool tests stop before the send (one on the missing
+    `confirm_unsafe`, one on the query check), so nothing ever executed the line that was
+    broken. Measured through MCP on hardware: every call died with
+    `'IT8813' object has no attribute 'write'` while `it8813_query_scpi` worked, because the
+    query tool used the private `_query` and the write tool used a name that did not exist.
+    """
+    sent: list[str] = []
+
+    class FakeDriver:
+        def write_raw(self, command: str) -> None:
+            sent.append(command)
+
+    monkeypatch.setattr(server, "it8813", FakeDriver())
+    result = server.it8813_write_scpi("CURRent 0.1", confirm_unsafe=True)
+    assert result == {"command": "CURRent 0.1"}
+    assert sent == ["CURRent 0.1"]
+
+
+def test_raw_query_tool_returns_the_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The query tool must go through the public entry point and return the raw answer."""
+    asked: list[str] = []
+
+    class FakeDriver:
+        def query_raw(self, command: str) -> str:
+            asked.append(command)
+            return "5"
+
+    monkeypatch.setattr(server, "it8813", FakeDriver())
+    result = server.it8813_query_scpi("POWer:CONFig:LEVel?")
+    assert result == {"command": "POWer:CONFig:LEVel?", "response": "5"}
+    assert asked == ["POWer:CONFig:LEVel?"]

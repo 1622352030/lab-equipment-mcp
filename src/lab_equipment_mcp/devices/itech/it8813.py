@@ -447,6 +447,22 @@ class IT8813:
             self._desynced = True
             raise
 
+    def write_raw(self, command: str) -> None:
+        """Send one command verbatim, bypassing the typed setters' checks.
+
+        Exists so the generic MCP tools do not have to reach into `_write`: it applies no
+        test-phase ceiling and no input-enable guard, exactly like writing the bytes by hand.
+        """
+        self._write(command)
+
+    def query_raw(self, command: str) -> str:
+        """Send one query verbatim and return the raw response string.
+
+        Counterpart of :func:`write_raw`. The answer is returned unparsed, which is what makes
+        the generic query tool a genuine escape hatch for commands with no typed tool.
+        """
+        return self._query(command)
+
     def _sync(self) -> str:
         """``*OPC?`` - block until the instrument has executed what it was sent.
 
@@ -806,12 +822,16 @@ class IT8813:
         return {"enabled": raw == "1", "raw": raw}
 
     def set_input_short(self, enabled: bool | str) -> dict[str, Any]:
-        """``INPut:SHORt[:STATe]`` - draw the maximum current of the present range.
+        """``INPut:SHORt[:STATe]`` - short the input terminals (printed p40).
 
-        The manual's own description (printed p40) is that the command makes the module
-        sink the largest current its operating range allows - a deliberate short. It is
-        refused when the input is off, because shorting a live source with the input
-        disabled has no meaning and asking for it is more likely a mistake.
+        The guide (p40) describes this as sinking the largest current the operating range
+        allows. **Measured on the bench, this unit does not do that**: with the input on and
+        5 V across the terminals, enabling it drew 0.0 A and the terminals still showed the
+        open-circuit 5.00082 V. What it does do is put the instrument into a state that needs
+        ``PROTection:CLEar``: while it was on, ``INPut:STATe ON`` was ignored (the read-back
+        stayed 0) and ``STATus:QUEStionable:CONDition?`` answered 24578 (bit1/bit13/bit14);
+        clearing the protection restored normal input behaviour. Refused while the input is
+        off, because shorting a live source with the input disabled has no meaning.
         """
         if self.input_query()["enabled"] is False and _bool_word(enabled) == "ON":
             raise ValueError(
