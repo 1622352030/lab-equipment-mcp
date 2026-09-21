@@ -11,6 +11,7 @@ that the work was done. Skipping a gate is a failed run even when the code works
 | G2 Blast-radius list | touching `core/` or any shared code | every caller, its transport, whether it can be verified now, and the rollback if not | user |
 | G3 Coverage matrix | claiming an interface is "tested" | tool/feature by interface, with unrun cells marked unverified | self |
 | G4 Change authorisation | changing host network, device state, or enabling output | what changes, what it affects, how to revert | user |
+| G5 Usage Skill | finalising the PR, after acceptance | the device's `skills/<name>/`: class fundamentals with pages, every pit from this task traced to numbers, registered in both READMEs, installed locally | self |
 
 ---
 
@@ -164,3 +165,45 @@ Pass conditions:
 - Restoring device state restores it in the right order (for example, restore load before
   amplitude on instruments whose amplitude read-back depends on the configured load).
 - If a step can plausibly take a service down, say so up front and get agreement.
+
+---
+
+## G5 — Device usage Skill
+
+Required before the contribution is called finished: after the hardware acceptance is complete and
+before "the device is supported" is written anywhere or the PR/report is finalised.
+
+**It is written last on purpose.** Its two source materials only exist at the end: how this class of
+instrument behaves, and the list of pits fallen into while building and exercising the MCP layer.
+A Skill written before acceptance can only paraphrase the manual; a Skill written from memory after
+the fact loses the expensive entries.
+
+Tools state capability. They cannot state that mode A must not face source B, that a register
+persists into the next experiment, that the instrument enforces an ordering the manual never
+mentions, or which behaviour only looks like a fault. Those facts decide whether an experiment
+returns a true result, so the Skill that carries them is a deliverable, not documentation polish.
+
+| Skill | Class fundamentals (pages) | Pits recorded during the task | In both READMEs | Installed and visible |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+Pass conditions:
+
+- `skills/<verb>-<vendor>-<model>-<class>/` exists with `SKILL.md` (name + description frontmatter),
+  `agents/openai.yaml` and `references/`.
+- SKILL.md opens with how this class of instrument behaves, citing manual pages, before any
+  model-specific rule.
+- **Every pit recorded during the task appears as a rule**, naming the symptom it prevents and
+  carrying the measured numbers. An incident that is missing means the scratch list was not
+  maintained or the Skill was written too early.
+- General lore without a page and rules without a measurement do not count.
+- Ordering constraints, settings that persist across experiments, writes that can be silently
+  ignored, and "looks like a fault" behaviours are all present.
+- Out-of-scope terminals/commands and model limitations are stated explicitly.
+- The device guide and the Skill link to each other, and both READMEs list the Skill.
+- `scripts/install-skills.ps1` has been run and the Skill appears in the runtime's skill list - an
+  uninstalled Skill is invisible to the agent that needs it.
+- The Skill's verification rules match what the driver actually does: if the driver checks the error
+  queue after a write, say so; if it does not, do not claim it does.
+
+Content, naming and a skeleton: [usage-skill.md](usage-skill.md).

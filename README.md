@@ -113,6 +113,12 @@ Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已�
 使用 $add-lab-equipment-device 为这个项目增加一台支持 RS-232 和 LAN 的电源。
 ```
 
+接入一台设备后，流程还要求**最后**为它配套一个**设备专属使用 Skill**：MCP 工具只说明
+"能做什么"，Skill 说明"怎么组合才不会做错"——哪种模式不能对着哪种源、哪些设置会残留到
+下一次实验、手册没写但仪器强制的顺序、以及哪些验证判据会骗人。要求、命名与骨架见
+[`references/usage-skill.md`](skills/add-lab-equipment-device/references/usage-skill.md)，
+由 G5 关卡验收（在实机验收之后、提交之前完成）。
+
 仓库另提供 [`operate-itech-it8813-load`](skills/operate-itech-it8813-load/SKILL.md)
 Skill，供 Agent **使用**已接入的 ITECH IT8813 电子负载（而不是为它写驱动）。它先讲
 电子负载这一类设备的通用原理，再给出本型号的实操规则——**每条规则都对应一个真实

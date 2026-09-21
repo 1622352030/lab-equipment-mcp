@@ -117,6 +117,14 @@ Example:
 Use $add-lab-equipment-device to add a power supply with RS-232 and LAN support.
 ```
 
+Onboarding a device also requires a **device usage Skill**, written **last**: the MCP tools say what
+the instrument can be asked to do, while the Skill says how to combine those commands without
+producing a wrong result — which mode must not face which kind of source, which settings persist
+into the next experiment, which orderings the instrument enforces although the manual never states
+them, and which verification judgements lie. Requirements, naming and a skeleton:
+[`references/usage-skill.md`](skills/add-lab-equipment-device/references/usage-skill.md), checked by
+gate G5 (after hardware acceptance, before the commit/PR).
+
 The repository also ships an
 [`operate-itech-it8813-load`](skills/operate-itech-it8813-load/SKILL.md) Skill for **using** an
 already-integrated ITECH IT8813 electronic load (rather than writing its driver). It starts from
