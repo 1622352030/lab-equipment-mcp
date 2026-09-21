@@ -12,6 +12,9 @@ real bench incident on this instrument; each one names the symptom it prevents.
 For the full command-by-command manual comparison (Chinese), see
 [docs/itech/IT8813.md](../../docs/itech/IT8813.md). A worked example with the circuit arithmetic
 and measured values is in [references/worked-example.md](references/worked-example.md).
+Five instrument behaviours that contradict the manual or the obvious reading are collected in
+[references/verified-behaviour.md](references/verified-behaviour.md) — read it before planning
+a reset, a short, or a List run.
 
 ## 0. Start with what this class of instrument can and cannot do
 
@@ -92,12 +95,30 @@ explicitly at the start of each experiment instead of assuming defaults.
 | `VOLTage:ON` | `it8813_set_voltage_on` | Gates conduction even in CC. At 4.9 V the load drew 0.0000 A from a 4.5 V supply and only started at 5.0 V; zeroing it made 4.5 V work immediately. |
 | `RESistance:VDRop` | `it8813_set_resistance_vdrop` | changes CR behaviour at low voltage |
 | `TRANsient:STATe` | `it8813_set_transient_state` | leaves the dynamic generator armed |
-| `INPut:SHORt` | `it8813_set_input_short` | a deliberate short; only meaningful with the input enabled and no source |
+| `INPut:SHORt` | `it8813_set_input_short` | **measured: it sinks no current at all** (0.0 A at 5.00082 V) and instead latches the instrument — `INPut:STATe ON` is silently refused until `it8813_clear_protection` runs. Never build a run around it |
+
+### Resetting is not a safe state
+
+- **`*RST` and `SYSTem:PRESet` are ignored while `FUNCtion:MODE` is `LIST`**: both report
+  success, the error queue stays empty, and nothing changes. Leave LIST mode first
+  (`it8813_set_function_mode("FIXed")`).
+- A reset restores the **wide** protection defaults (OCP 60 A, OPP 760 W, hardware clamp
+  750 W), so re-write OCP, OPP and `POWer:CONFig` immediately afterwards.
+- On this unit `*RST` does **not** restore `TRIGger:SOURce` to `MANUal` (print p33): write it
+  explicitly.
+- Details, with the 13-item before/after table: [references/verified-behaviour.md](references/verified-behaviour.md) §1–2.
 
 ## 4. Ordering the manual does not state but the instrument enforces
 
 - **List**: configure `LIST:*` **before** `FUNCtion:MODE LIST`. In the other order the instrument
-  answers `-221,"Settings conflict"` (and beeps).
+  answers `-221,"Settings conflict"` (and beeps). While LIST mode is selected `*RST` is a
+  silent no-op (§3).
+- **Enable the input before selecting LIST, not after.** Enabling the input *while* LIST is
+  selected was refused by the instrument: `*ESR?` went to **16** (bit 4, EXE), it beeped and
+  lit the Error lamp, while the error queue stayed empty. Enabling the input in `FIXED` mode
+  first and then selecting LIST ran cleanly (`*ESR?` = 0) and the list advanced. Do not use
+  Trace to capture a List run — the trigger is consumed and the trace buffer stays empty
+  ([references/verified-behaviour.md](references/verified-behaviour.md) §4–5).
 - **Transient / dynamic**: `TRANsient:STATe ON` only arms it. All three modes
   (`CONTinuous`/`PULse`/`TOGGle`) begin **on a trigger** — without one the load sits at the
   trigger state and sinks nothing while the supply still reads 5 V. Send
@@ -121,6 +142,9 @@ Read-back alone is not evidence, and neither is a flag computed only from a read
   FIFO, so a leftover entry can be blamed on the wrong command: drain it before judging.
 - If a sampling loop issues queries directly, it must check there too — a loop that skipped the
   checks hid errors across dozens of measurements.
+- **After a query timeout, a write's own acknowledgement is not evidence.** `TRACe:DATA?` on an
+  empty buffer answers nothing at all, so the read times out and the unread answer shifts every
+  later response: disable the input first, then read the state back.
 
 ## 6. Looks like a fault, is not one
 
@@ -130,7 +154,8 @@ Read-back alone is not evidence, and neither is a flag computed only from a read
   Judge by the registers.
 - A measured unit reports `*TST?` = 1 with `5,"RST checksum failed"` and `*ESR?` = 8: that is a
   **device-side non-volatile storage fault**, not a command error. On that unit `*RST` no longer
-  restores `TRIGger:SOURce` to its documented `MANUal` value — write it explicitly.
+  restores `TRIGger:SOURce` to its documented `MANUal` value — write it explicitly, and see
+  §3 "Resetting is not a safe state" for the rest of that behaviour.
 - The panel **Error** lamp latches; it does not clear just because the queue is now empty.
 
 ## 7. Out of scope on this bench

@@ -140,8 +140,10 @@ corresponds to a real bench incident**:
   to List mode; transient and trace need a trigger
 - verification discipline: read back and check the error queue (settings are silently ignored in
   local mode), the buzzer is not an error indicator, and the known storage fault on this unit
-- References: [`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md)
-  and [`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md)
+- References: [`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md),
+  [`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md) and
+  [`references/verified-behaviour.md`](skills/operate-itech-it8813-load/references/verified-behaviour.md)
+  (measured behaviour that contradicts the manual — reset, input short, List/Trace)
 
 Example:
 

@@ -135,7 +135,9 @@ Skill，供 Agent **使用**已接入的 ITECH IT8813 电子负载（而不是�
   指示器；本机自检的存储故障与 `*RST` 失效项
 - 参考文档：[`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md)
   （电子负载通用常识）、[`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md)
-  （一轮实机演示的电路计算与实测对照）
+  （一轮实机演示的电路计算与实测对照）、
+  [`references/verified-behaviour.md`](skills/operate-itech-it8813-load/references/verified-behaviour.md)
+  （与手册措辞或直觉不符的实测行为：复位、输入短路、List 与 Trace 互斥）
 
 显式调用示例：
 
