@@ -824,14 +824,15 @@ class IT8813:
     def set_input_short(self, enabled: bool | str) -> dict[str, Any]:
         """``INPut:SHORt[:STATe]`` - short the input terminals (printed p40).
 
-        The guide (p40) describes this as sinking the largest current the operating range
-        allows. **Measured on the bench, this unit does not do that**: with the input on and
-        5 V across the terminals, enabling it drew 0.0 A and the terminals still showed the
-        open-circuit 5.00082 V. What it does do is put the instrument into a state that needs
-        ``PROTection:CLEar``: while it was on, ``INPut:STATe ON`` was ignored (the read-back
-        stayed 0) and ``STATus:QUEStionable:CONDition?`` answered 24578 (bit1/bit13/bit14);
-        clearing the protection restored normal input behaviour. Refused while the input is
-        off, because shorting a live source with the input disabled has no meaning.
+        The guide (p40) describes this as sinking the largest current the operating range allows.
+        **Measured on the bench the steady state is 0 A, but switching it on is a spike**: with the
+        load sinking 0.0987 A, enabling it drove the load-side window extreme to 8.34 A (a second
+        run recorded 10.74 A) while the supply still read 0.0 A at that moment - the spike is far
+        shorter than the supply's current loop and than its serial query. Afterwards the instrument
+        locks: ``INPut:STATe ON`` is ignored (the read-back stays 0) and
+        ``STATus:QUEStionable:CONDition?`` answers 24578 (bit1/bit13/bit14) until
+        ``PROTection:CLEar`` runs. The 8-11 A spike is a real stress on a small supply, so this is
+        not a safe function despite the 0 A steady state. Refused while the input is off.
         """
         if self.input_query()["enabled"] is False and _bool_word(enabled) == "ON":
             raise ValueError(

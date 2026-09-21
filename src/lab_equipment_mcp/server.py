@@ -2735,11 +2735,12 @@ def it8813_get_input() -> dict[str, Any]:
 def it8813_set_input_short(enabled: bool) -> dict[str, Any]:
     """`INPut:SHORt[:STATe]` - short the input terminals (printed p40).
 
-    Measured on the bench, this unit does **not** sink current in this state: with 5 V across
-    the terminals it drew 0.0 A. What it does is lock the instrument - `INPut:STATe ON` was
-    ignored (the read-back stayed 0) and `questionable condition` read 24578 until
-    `it8813_clear_protection` was called. The guide's "largest current of the operating range"
-    wording did not reproduce on this firmware. Refused while the input is off.
+    Measured on the bench, the steady state is 0 A but the switch-on is a **spike**: with the load
+    sinking 0.0987 A, enabling it pushed the load-side window extreme to 8.34 A (10.74 A in another
+    run) while the supply read 0.0 A at that moment. It then locks the instrument - `INPut:STATe ON`
+    is ignored (the read-back stays 0) and `questionable condition` reads 24578 until
+    `it8813_clear_protection` runs. The 8-11 A spike is a real stress on a small supply. Refused
+    while the input is off.
     """
     return it8813.set_input_short(enabled)
 

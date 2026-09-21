@@ -37,26 +37,38 @@ although the guide documents its `*RST` value as `MANUal` (print p33). The same 
 **Rules.** Write `TRIGger:SOURce` explicitly after every reset, and do not assume the other
 documented default values hold on this particular unit without reading them back.
 
-## 3. `INPut:SHORt` does not sink current — it latches the instrument
+## 3. `INPut:SHORt` draws an 8–11 A spike, then latches the instrument
 
 The guide describes this command (print p40) as making the module sink the largest current its
-operating range allows. **On this unit it does not.**
+operating range allows. **On this unit the steady state is 0 A — but the moment of switching it
+on draws a spike 16–21× the supply's current limit, and the supply side cannot see it.**
 
 | Step | Reading |
 | --- | --- |
-| input ON, CC set to 0.0 A, `it8813_set_input_short(True)` | accepted; `INPut:SHORt?` reads `1` |
+| input ON and sinking 0.0987 A, `it8813_set_input_short(True)` | accepted; `INPut:SHORt?` reads `1` |
+| load-side `measure_current_max`, same measurement window | **8.34317 A** (a second run's window recorded 10.7378 A) |
+| supply-side reading at that moment | **0.0 A** — the spike is far too short for the supply's current loop, and its serial query misses it |
 | measure both sides | **load 0.0 A at 5.00082 V (open circuit)**; supply 0.0 A at 4.9994 V |
 | input off, then `it8813_set_input(True, confirm_enable=True)` | **refused** — the read-back stays `0` |
 | `it8813_set_input_short(False)`, then enable the input again | **still refused** |
 | `STATus:QUEStionable:CONDition?` | **24578** = bit1 + bit13 + bit14 (bit1 is the SCPI current bit) |
 | `it8813_clear_protection()`, then enable the input | **succeeds**; CC 0.1 A then drew 0.0984039 A |
 
+**What it is not.** The spike is not a range-switching artefact: the same window also did a
+6 A → 60 A → 6 A round trip, which contributed at most 0.53 A.
+
 **Rules.**
-1. Never plan a run around "short the load and watch OCP trip": the short sinks nothing, so no
-   protection path is exercised and the expectation is simply wrong.
-2. Once it has been enabled, `it8813_clear_protection()` is required before the input can be
+1. **Treat this as a hazard, not as a safe "short".** 8–11 A is 16–21× a 0.5 A supply limit —
+   a real stress on a small supply and thin wiring. Do not run it without checking that the
+   supply tolerates a tens-of-amps transient. Steady state being 0 A does **not** make it safe.
+2. Never plan a run around "short the load and watch OCP trip": the steady state is 0 A, so no
+   protection path is exercised (the spike is far shorter than any OCP delay).
+3. Once it has been enabled, `it8813_clear_protection()` is required before the input can be
    enabled again. Without it the enable is silently refused and the load looks dead while the
    supply still reads its open-circuit voltage.
+4. To measure a millisecond event, read the **load-side** window extremes
+   (`measure_current_max`) — and take the baseline **after** `it8813_trigger()`, because a
+   trigger opens a fresh measurement window.
 
 ## 4. List and Trace cannot collect at the same time
 

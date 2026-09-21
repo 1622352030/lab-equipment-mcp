@@ -95,7 +95,7 @@ explicitly at the start of each experiment instead of assuming defaults.
 | `VOLTage:ON` | `it8813_set_voltage_on` | Gates conduction even in CC. At 4.9 V the load drew 0.0000 A from a 4.5 V supply and only started at 5.0 V; zeroing it made 4.5 V work immediately. |
 | `RESistance:VDRop` | `it8813_set_resistance_vdrop` | changes CR behaviour at low voltage |
 | `TRANsient:STATe` | `it8813_set_transient_state` | leaves the dynamic generator armed |
-| `INPut:SHORt` | `it8813_set_input_short` | **measured: it sinks no current at all** (0.0 A at 5.00082 V) and instead latches the instrument — `INPut:STATe ON` is silently refused until `it8813_clear_protection` runs. Never build a run around it |
+| `INPut:SHORt` | `it8813_set_input_short` | **measured: switching it on draws an 8–11 A spike** (16–21× the supply's 0.5 A limit) that the **supply side cannot see at all** (reads 0.0 A at that moment), then the load's own protection disables the input — steady state 0 A, latched until `it8813_clear_protection` runs. The spike is the hazard, not the steady state |
 
 ### Resetting is not a safe state
 
