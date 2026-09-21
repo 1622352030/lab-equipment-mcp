@@ -58,11 +58,13 @@ on draws a spike 16–21× the supply's current limit, and the supply side canno
 6 A → 60 A → 6 A round trip, which contributed at most 0.53 A.
 
 **Rules.**
-1. **Treat this as a hazard, not as a safe "short".** 8–11 A is 16–21× a 0.5 A supply limit —
-   a real stress on a small supply and thin wiring. Do not run it without checking that the
-   supply tolerates a tens-of-amps transient. Steady state being 0 A does **not** make it safe.
-2. Never plan a run around "short the load and watch OCP trip": the steady state is 0 A, so no
-   protection path is exercised (the spike is far shorter than any OCP delay).
+1. **Do not energise a shorted load — on any supply.** The fault current is set by the *source*,
+   so a stronger supply means a bigger spike and more energy: "it is only a small supply" is the
+   wrong way round. Short-circuiting a live source is abuse of the supply, not a test method.
+2. **This function cannot verify protection either**, so it has no legitimate use here: the spike
+   is far shorter than any OCP delay and the steady state is 0 A, so no protection path is
+   exercised — while the instrument is left latched. Only a deliberately designed fault test
+   (with the supply and wiring rated for the worst case) would justify touching it.
 3. Once it has been enabled, `it8813_clear_protection()` is required before the input can be
    enabled again. Without it the enable is silently refused and the load looks dead while the
    supply still reads its open-circuit voltage.

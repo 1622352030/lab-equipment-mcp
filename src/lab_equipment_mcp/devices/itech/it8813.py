@@ -831,8 +831,9 @@ class IT8813:
         shorter than the supply's current loop and than its serial query. Afterwards the instrument
         locks: ``INPut:STATe ON`` is ignored (the read-back stays 0) and
         ``STATus:QUEStionable:CONDition?`` answers 24578 (bit1/bit13/bit14) until
-        ``PROTection:CLEar`` runs. The 8-11 A spike is a real stress on a small supply, so this is
-        not a safe function despite the 0 A steady state. Refused while the input is off.
+        ``PROTection:CLEar`` runs. The 8-11 A spike stresses the supply and the wiring, and a
+        stronger supply means a bigger spike, so "only a small supply" is the wrong way round:
+        avoid energised shorts entirely. Refused while the input is off.
         """
         if self.input_query()["enabled"] is False and _bool_word(enabled) == "ON":
             raise ValueError(
