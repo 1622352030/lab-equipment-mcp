@@ -95,7 +95,7 @@ explicitly at the start of each experiment instead of assuming defaults.
 | `VOLTage:ON` | `it8813_set_voltage_on` | Gates conduction even in CC. At 4.9 V the load drew 0.0000 A from a 4.5 V supply and only started at 5.0 V; zeroing it made 4.5 V work immediately. |
 | `RESistance:VDRop` | `it8813_set_resistance_vdrop` | changes CR behaviour at low voltage |
 | `TRANsient:STATe` | `it8813_set_transient_state` | leaves the dynamic generator armed |
-| `INPut:SHORt` | `it8813_set_input_short` | **measured: switching it on draws an 8–11 A spike** (16–21× the supply's 0.5 A limit) that the **supply side cannot see at all** (reads 0.0 A at that moment), then the load's own protection disables the input — steady state 0 A, latched until `it8813_clear_protection` runs. **Avoid it entirely: energised shorts are abuse of the supply whatever its size, and this function cannot verify protection either** |
+| `INPut:SHORt` | `it8813_set_input_short` | **measured: switching it on draws an 8–11 A spike** (16–21× the supply's 0.5 A limit) that the **supply side cannot see at all** (reads 0.0 A at that moment), then the load's own protection disables the input — steady state 0 A, latched until `it8813_clear_protection` runs. **Reserve it for the rare test whose purpose really is the short condition itself** (a supply's short-circuit protection and recovery, a DUT's short-circuit behaviour): design it deliberately, rate the supply and wiring for the worst case, and note it cannot verify the load's own OCP |
 
 ### Resetting is not a safe state
 

@@ -58,13 +58,16 @@ on draws a spike 16–21× the supply's current limit, and the supply side canno
 6 A → 60 A → 6 A round trip, which contributed at most 0.53 A.
 
 **Rules.**
-1. **Do not energise a shorted load — on any supply.** The fault current is set by the *source*,
-   so a stronger supply means a bigger spike and more energy: "it is only a small supply" is the
-   wrong way round. Short-circuiting a live source is abuse of the supply, not a test method.
-2. **This function cannot verify protection either**, so it has no legitimate use here: the spike
-   is far shorter than any OCP delay and the steady state is 0 A, so no protection path is
-   exercised — while the instrument is left latched. Only a deliberately designed fault test
-   (with the supply and wiring rated for the worst case) would justify touching it.
+1. **Energised shorts are a special-purpose test, not a routine one.** The fault current is set
+   by the *source*, so a stronger supply means a bigger spike and more energy: "it is only a
+   small supply" is the wrong way round. It is not a normal way to work with a supply.
+2. **Use it only when the short condition *is* the test** — checking a supply's short-circuit
+   protection and recovery, or a DUT's short-circuit behaviour — with the supply and wiring rated
+   for the worst case and a defined recovery step afterwards.
+3. **What this measurement rules out is one specific purpose:** it cannot verify the *load's*
+   OCP, because the spike is far shorter than any OCP delay and the steady state is 0 A, so that
+   path is never exercised. The same reading is useful on the supply side instead: 8.34 A /
+   10.74 A at the load against 0.0 A at the supply characterises the supply's current-limit loop.
 3. Once it has been enabled, `it8813_clear_protection()` is required before the input can be
    enabled again. Without it the enable is silently refused and the load looks dead while the
    supply still reads its open-circuit voltage.

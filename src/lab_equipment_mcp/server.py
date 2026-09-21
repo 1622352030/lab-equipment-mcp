@@ -2739,9 +2739,9 @@ def it8813_set_input_short(enabled: bool) -> dict[str, Any]:
     sinking 0.0987 A, enabling it pushed the load-side window extreme to 8.34 A (10.74 A in another
     run) while the supply read 0.0 A at that moment. It then locks the instrument - `INPut:STATe ON`
     is ignored (the read-back stays 0) and `questionable condition` reads 24578 until
-    `it8813_clear_protection` runs. The 8-11 A spike stresses the supply and the wiring, and a
-    stronger supply means a bigger spike: avoid energised shorts on any supply. Refused while the
-    input is off.
+    `it8813_clear_protection` runs. Treat it as a special-purpose test: the fault current is set by
+    the source (so a stronger supply means a bigger spike), and the spike is too short to exercise
+    the load's own OCP. Refused while the input is off.
     """
     return it8813.set_input_short(enabled)
 
