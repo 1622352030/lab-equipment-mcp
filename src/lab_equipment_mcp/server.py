@@ -2582,6 +2582,10 @@ def it8813_get_settings() -> dict[str, Any]:
         "power_protection_delay_s": it8813.power_protection_delay_query(),
         "transient_state": it8813.transient_state_query(),
         "trigger_source": it8813.trigger_source_query(),
+        "voltage_on": it8813.voltage_on_query(),
+        "power_config": it8813.power_config_query(),
+        "input_timer": it8813.input_timer_query(),
+        "input_timer_delay_s": it8813.input_timer_delay_query(),
         "current_limit_a": it8813_current_limit_a(),
         "power_limit_w": it8813_power_limit_w(),
     }
@@ -2645,6 +2649,16 @@ def it8813_preset(confirm: bool = False) -> dict[str, Any]:
     return it8813.preset(confirm=confirm)
 
 
+@mcp.tool(name="it8813_get_power_on_setup", annotations=READ_ONLY)
+def it8813_get_power_on_setup() -> dict[str, Any]:
+    """`SYSTem:POSetup?` - what the instrument recalls at power-on (printed p24).
+
+    No tool writes this setting, but the front panel and `*RST` can change it, so the
+    value is still worth being able to read.
+    """
+    return it8813.power_on_setup_query()
+
+
 @mcp.tool(name="it8813_set_remote", annotations=STATE_CHANGE)
 def it8813_set_remote(local: bool = False, lockout: bool = False) -> dict[str, Any]:
     """Enter remote mode, or release the panel with `local=True`.
@@ -2671,6 +2685,12 @@ def it8813_set_display_text(row: int = 0, text: str = "") -> dict[str, Any]:
 def it8813_set_display_mode(mode: str) -> dict[str, Any]:
     """`DISPlay[:WINDow]:MODE` - NORMal or TEXT (printed p27)."""
     return it8813.set_display_mode(mode)
+
+
+@mcp.tool(name="it8813_get_display_mode", annotations=READ_ONLY)
+def it8813_get_display_mode() -> dict[str, Any]:
+    """`DISPlay[:WINDow]:MODE?` - NORMal or TEXT (printed p27)."""
+    return it8813.display_mode_query()
 
 
 @mcp.tool(name="it8813_set_function", annotations=STATE_CHANGE)
@@ -2713,10 +2733,15 @@ def it8813_get_input() -> dict[str, Any]:
 
 @mcp.tool(name="it8813_set_input_short", annotations=STATE_CHANGE_DESTRUCTIVE)
 def it8813_set_input_short(enabled: bool) -> dict[str, Any]:
-    """`INPut:SHORt[:STATe]` - sink the maximum current of the present range (printed p40).
+    """`INPut:SHORt[:STATe]` - short the input terminals (printed p40).
 
-    A deliberate short. Refused while the input is off, because shorting a live source
-    with the input disabled has no meaning and asking for it is more likely a mistake.
+    Measured on the bench, the steady state is 0 A but the switch-on is a **spike**: with the load
+    sinking 0.0987 A, enabling it pushed the load-side window extreme to 8.34 A (10.74 A in another
+    run) while the supply read 0.0 A at that moment. It then locks the instrument - `INPut:STATe ON`
+    is ignored (the read-back stays 0) and `questionable condition` reads 24578 until
+    `it8813_clear_protection` runs. Treat it as a special-purpose test: the fault current is set by
+    the source (so a stronger supply means a bigger spike), and the spike is too short to exercise
+    the load's own OCP. Refused while the input is off.
     """
     return it8813.set_input_short(enabled)
 
@@ -2737,6 +2762,19 @@ def it8813_set_input_timer(enabled: bool, delay_s: float | None = None) -> dict[
     if delay_s is not None:
         result["delay"] = it8813.set_input_timer_delay(delay_s)
     return result
+
+
+@mcp.tool(name="it8813_get_input_timer", annotations=READ_ONLY)
+def it8813_get_input_timer() -> dict[str, Any]:
+    """Read `INPut:TIMer[:STATe]?` and `INPut:TIMer:DELay?` (printed p41).
+
+    With the timer armed the input switches itself off after the delay, so a long
+    experiment stops on its own; this is the read-back that shows whether it is armed.
+    """
+    return {
+        "state": it8813.input_timer_query(),
+        "delay_s": it8813.input_timer_delay_query(),
+    }
 
 
 @mcp.tool(name="it8813_set_transient_state", annotations=STATE_CHANGE)
@@ -2772,6 +2810,19 @@ def it8813_set_current_range(amps: float) -> dict[str, Any]:
     the range containing it, preferring the higher-resolution one where they overlap.
     """
     return it8813.set_current_range(amps)
+
+
+@mcp.tool(name="it8813_get_current_range_bounds", annotations=READ_ONLY)
+def it8813_get_current_range_bounds() -> dict[str, Any]:
+    """`CURRent:HIGH?` / `CURRent:LOW?` - the CC range boundaries (printed p53).
+
+    These are range limits, not the dynamic-mode A/B levels: the transient levels live in
+    `CURRent:TRANsient:ALEVel/BLEVel` (printed p51-52).
+    """
+    return {
+        "high_a": it8813.current_high_query(),
+        "low_a": it8813.current_low_query(),
+    }
 
 
 @mcp.tool(name="it8813_set_current_protection", annotations=STATE_CHANGE)
@@ -2828,6 +2879,21 @@ def it8813_set_current_slew(
     return result
 
 
+@mcp.tool(name="it8813_get_current_slew", annotations=READ_ONLY)
+def it8813_get_current_slew() -> dict[str, Any]:
+    """Read `CURRent:SLEW`, `:POSitive`, `:NEGative` and `:SLEWrate:STATe` (printed p46-48).
+
+    `both` is reported too, but on hardware it answered 0 both before and after a
+    successful `CURRent:SLEW 0.3`: judge the rate by `positive`/`negative`, not by `both`.
+    """
+    return {
+        "both": it8813.current_slew_query(),
+        "positive": it8813.current_slew_positive_query(),
+        "negative": it8813.current_slew_negative_query(),
+        "state": it8813.current_slewrate_state_query(),
+    }
+
+
 @mcp.tool(name="it8813_set_current_transient", annotations=STATE_CHANGE)
 def it8813_set_current_transient(
     mode: str | None = None,
@@ -2851,6 +2917,16 @@ def it8813_set_current_transient(
             a_seconds=a_seconds, b_seconds=b_seconds
         )
     return result
+
+
+@mcp.tool(name="it8813_get_current_transient", annotations=READ_ONLY)
+def it8813_get_current_transient() -> dict[str, Any]:
+    """`CURRent:TRANsient:MODE?` - CONTinuous, PULSe or TOGGle (printed p51).
+
+    The A/B levels and widths are read back by the setter at write time; the driver has no
+    standalone query method for them yet.
+    """
+    return {"mode": it8813.current_transient_mode_query()}
 
 
 @mcp.tool(name="it8813_set_voltage", annotations=STATE_CHANGE)
@@ -2878,16 +2954,47 @@ def it8813_set_voltage_range(
     return result
 
 
+@mcp.tool(name="it8813_get_voltage_range_auto", annotations=READ_ONLY)
+def it8813_get_voltage_range_auto() -> dict[str, Any]:
+    """`VOLTage:RANGe:AUTO[:STATe]?` (printed p54)."""
+    return it8813.voltage_range_auto_query()
+
+
+@mcp.tool(name="it8813_get_voltage_range_bounds", annotations=READ_ONLY)
+def it8813_get_voltage_range_bounds() -> dict[str, Any]:
+    """`VOLTage:HIGH?` / `VOLTage:LOW?` - the CV range boundaries (printed p58)."""
+    return {
+        "high_v": it8813.voltage_high_query(),
+        "low_v": it8813.voltage_low_query(),
+    }
+
+
 @mcp.tool(name="it8813_set_voltage_on", annotations=STATE_CHANGE)
 def it8813_set_voltage_on(volts: float) -> dict[str, Any]:
     """`VOLTage[:LEVel]:ON` - the CV level at which the input switches on (printed p55)."""
     return it8813.set_voltage_on(volts)
 
 
+@mcp.tool(name="it8813_get_voltage_on", annotations=READ_ONLY)
+def it8813_get_voltage_on() -> dict[str, Any]:
+    """`VOLTage[:LEVel]:ON?` - the level the input switches on at (printed p55).
+
+    Worth reading before a low-voltage experiment: measured on the bench this gates
+    conduction in CC mode too, so a value above the source keeps the load at 0 A.
+    """
+    return it8813.voltage_on_query()
+
+
 @mcp.tool(name="it8813_set_voltage_latch", annotations=STATE_CHANGE)
 def it8813_set_voltage_latch(enabled: bool) -> dict[str, Any]:
     """`VOLTage:LATCh[:STATe]` - latch the measured voltage (printed p56)."""
     return it8813.set_voltage_latch(enabled)
+
+
+@mcp.tool(name="it8813_get_voltage_latch", annotations=READ_ONLY)
+def it8813_get_voltage_latch() -> dict[str, Any]:
+    """`VOLTage:LATCh[:STATe]?` - whether the measured voltage is latched (printed p56)."""
+    return it8813.voltage_latch_query()
 
 
 @mcp.tool(name="it8813_set_voltage_transient", annotations=STATE_CHANGE)
@@ -2911,6 +3018,12 @@ def it8813_set_voltage_transient(
     return result
 
 
+@mcp.tool(name="it8813_get_voltage_transient", annotations=READ_ONLY)
+def it8813_get_voltage_transient() -> dict[str, Any]:
+    """`VOLTage:TRANsient:MODE?` (printed p56)."""
+    return {"mode": it8813.voltage_transient_mode_query()}
+
+
 @mcp.tool(name="it8813_set_resistance", annotations=STATE_CHANGE)
 def it8813_set_resistance(ohms: float) -> dict[str, Any]:
     """`RESistance[:LEVel]` - CR setpoint in ohms (printed p59)."""
@@ -2927,6 +3040,15 @@ def it8813_get_resistance() -> dict[str, Any]:
 def it8813_set_resistance_range(ohms: float) -> dict[str, Any]:
     """`RESistance:RANGe` (printed p60)."""
     return it8813.set_resistance_range(ohms)
+
+
+@mcp.tool(name="it8813_get_resistance_range_bounds", annotations=READ_ONLY)
+def it8813_get_resistance_range_bounds() -> dict[str, Any]:
+    """`RESistance:HIGH?` / `RESistance:LOW?` - the CR range boundaries (printed p62)."""
+    return {
+        "high_ohm": it8813.resistance_high_query(),
+        "low_ohm": it8813.resistance_low_query(),
+    }
 
 
 @mcp.tool(name="it8813_set_resistance_transient", annotations=STATE_CHANGE)
@@ -2950,6 +3072,12 @@ def it8813_set_resistance_transient(
     return result
 
 
+@mcp.tool(name="it8813_get_resistance_transient", annotations=READ_ONLY)
+def it8813_get_resistance_transient() -> dict[str, Any]:
+    """`RESistance:TRANsient:MODE?` (printed p60)."""
+    return {"mode": it8813.resistance_transient_mode_query()}
+
+
 @mcp.tool(name="it8813_set_resistance_features", annotations=STATE_CHANGE)
 def it8813_set_resistance_features(
     vdrop_v: float | None = None, led_mode: bool | None = None
@@ -2964,6 +3092,15 @@ def it8813_set_resistance_features(
     if led_mode is not None:
         result["led"] = it8813.set_resistance_led(led_mode)
     return result
+
+
+@mcp.tool(name="it8813_get_resistance_features", annotations=READ_ONLY)
+def it8813_get_resistance_features() -> dict[str, Any]:
+    """`RESistance:VDRop?` and `RESistance:LED[:STATe]?` (printed p63-64)."""
+    return {
+        "vdrop": it8813.resistance_vdrop_query(),
+        "led": it8813.resistance_led_query(),
+    }
 
 
 @mcp.tool(name="it8813_set_power", annotations=STATE_CHANGE)
@@ -2985,6 +3122,15 @@ def it8813_get_power() -> dict[str, Any]:
 def it8813_set_power_range(watts: float) -> dict[str, Any]:
     """`POWer:RANGe` (printed p65)."""
     return it8813.set_power_range(watts)
+
+
+@mcp.tool(name="it8813_get_power_range_bounds", annotations=READ_ONLY)
+def it8813_get_power_range_bounds() -> dict[str, Any]:
+    """`POWer:HIGH?` / `POWer:LOW?` - the CW range boundaries (printed p68)."""
+    return {
+        "high_w": it8813.power_high_query(),
+        "low_w": it8813.power_low_query(),
+    }
 
 
 @mcp.tool(name="it8813_set_power_protection", annotations=STATE_CHANGE)
@@ -3018,6 +3164,16 @@ def it8813_set_power_config(watts: float) -> dict[str, Any]:
     return it8813.set_power_config(watts)
 
 
+@mcp.tool(name="it8813_get_power_config", annotations=READ_ONLY)
+def it8813_get_power_config() -> dict[str, Any]:
+    """`POWer:CONFig[:LEVel]?` - the hardware power clamp (printed p70).
+
+    Read this before blaming a low current: measured on the bench, a 1 W value caps the
+    load at 1 W in every mode, so a CC request of 0.40 A sank only 0.1993 A at 4.99 V.
+    """
+    return it8813.power_config_query()
+
+
 @mcp.tool(name="it8813_set_power_transient", annotations=STATE_CHANGE)
 def it8813_set_power_transient(
     mode: str | None = None,
@@ -3041,6 +3197,12 @@ def it8813_set_power_transient(
             a_seconds=a_seconds, b_seconds=b_seconds
         )
     return result
+
+
+@mcp.tool(name="it8813_get_power_transient", annotations=READ_ONLY)
+def it8813_get_power_transient() -> dict[str, Any]:
+    """`POWer:TRANsient:MODE?` (printed p65)."""
+    return {"mode": it8813.power_transient_mode_query()}
 
 
 @mcp.tool(name="it8813_measure_voltage", annotations=READ_ONLY)
@@ -3074,6 +3236,37 @@ def it8813_measure_all() -> dict[str, Any]:
         "current_a": it8813.measure_current()["current_a"],
         "power_w": it8813.measure_power()["power_w"],
     }
+
+
+@mcp.tool(name="it8813_measure_voltage_max", annotations=READ_ONLY)
+def it8813_measure_voltage_max() -> dict[str, Any]:
+    """`MEASure:VOLTage:MAX?` - peak voltage of the measurement window (printed p29).
+
+    The sibling `it8813_fetch_voltage_max` returns the stored reading instead of taking a
+    new one. Measured on the bench with the load input **off**: 5.03128 V while the source's
+    output capacitors were still draining, and 0.00088501 V in a later session. A disabled
+    input is high impedance but still measures its terminals, so a voltage here is not the
+    load sinking current - and it is not a fresh single reading either.
+    """
+    return it8813.measure_voltage_max()
+
+
+@mcp.tool(name="it8813_measure_voltage_min", annotations=READ_ONLY)
+def it8813_measure_voltage_min() -> dict[str, Any]:
+    """`MEASure:VOLTage:MIN?` - lowest voltage of the measurement window (printed p30)."""
+    return it8813.measure_voltage_min()
+
+
+@mcp.tool(name="it8813_measure_current_max", annotations=READ_ONLY)
+def it8813_measure_current_max() -> dict[str, Any]:
+    """`MEASure:CURRent:MAX?` - peak current of the measurement window (printed p30)."""
+    return it8813.measure_current_max()
+
+
+@mcp.tool(name="it8813_measure_current_min", annotations=READ_ONLY)
+def it8813_measure_current_min() -> dict[str, Any]:
+    """`MEASure:CURRent:MIN?` - lowest current of the measurement window (printed p31)."""
+    return it8813.measure_current_min()
 
 
 @mcp.tool(name="it8813_fetch_voltage", annotations=READ_ONLY)
@@ -3129,6 +3322,7 @@ def it8813_get_measurement_info() -> dict[str, Any]:
         "capability": it8813.measure_capability(),
         "fetch_capability": it8813.fetch_capability(),
         "time": it8813.measure_time(),
+        "fetch_time": it8813.fetch_time(),
     }
 
 
@@ -3155,6 +3349,12 @@ def it8813_set_trigger_timer(seconds: float) -> dict[str, Any]:
     return it8813.set_trigger_timer(seconds)
 
 
+@mcp.tool(name="it8813_get_trigger_timer", annotations=READ_ONLY)
+def it8813_get_trigger_timer() -> dict[str, Any]:
+    """`TRIGger:TIMer?` - 0.01 to 999.99 s (printed p34)."""
+    return it8813.trigger_timer_query()
+
+
 @mcp.tool(name="it8813_set_sense_average", annotations=STATE_CHANGE)
 def it8813_set_sense_average(
     count: int, voltage1_v: float | None = None, voltage2_v: float | None = None
@@ -3170,6 +3370,19 @@ def it8813_set_sense_average(
     if voltage2_v is not None:
         result["voltage2"] = it8813.set_sense_time_voltage(2, voltage2_v)
     return result
+
+
+@mcp.tool(name="it8813_get_sense_average", annotations=READ_ONLY)
+def it8813_get_sense_average() -> dict[str, Any]:
+    """Read `SENSe:AVERage:COUNt?` and `SENSe:TIME:VOLTage1|VOLTage2?` (printed p76).
+
+    These shape the measurement path; they are not the out-of-scope remote-sense terminals.
+    """
+    return {
+        "count": it8813.sense_average_count_query(),
+        "voltage1": it8813.sense_time_voltage_query(1),
+        "voltage2": it8813.sense_time_voltage_query(2),
+    }
 
 
 @mcp.tool(name="it8813_get_status_registers", annotations=READ_ONLY)
@@ -3386,7 +3599,7 @@ def it8813_query_scpi(command: str) -> dict[str, Any]:
     text = command.strip()
     if not text.endswith("?"):
         raise ValueError("it8813_query_scpi expects a query ending in '?'")
-    return {"command": text, "response": it8813._query(text)}
+    return {"command": text, "response": it8813.query_raw(text)}
 
 
 @mcp.tool(name="it8813_write_scpi", annotations=STATE_CHANGE_DESTRUCTIVE)
@@ -3406,7 +3619,7 @@ def it8813_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, A
     text = command.strip()
     if text.endswith("?"):
         raise ValueError("it8813_write_scpi expects a setting command, not a query")
-    it8813.write(text)
+    it8813.write_raw(text)
     return {"command": text}
 
 
