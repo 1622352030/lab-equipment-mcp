@@ -2420,11 +2420,29 @@ def it8813_diagnose_setup(resource: str | None = None, probe: bool = True) -> di
     pyvisa_installed = _ilu.find_spec("pyvisa") is not None
     visa_libraries = find_visa_libraries()
     resources: list[str] = []
+    resource_details: list[dict[str, Any]] = []
     probe_result: dict[str, Any] | None = None
     error: str | None = None
     try:
         backend = VisaBackend()
-        resources = [str(r) for r in backend.list_resources()]
+        # Keep the bare resource name. This used to be `[str(r) for r in …]`, which yields
+        # "VisaResource(resource='USB0::…', …)" - a string that does not start with "USB",
+        # so the recommendation below fired whenever *any* resource was enumerated, even
+        # with a working USB-TMC instrument attached and answering *IDN?. The richer
+        # fields (interface type, idn) are returned separately instead of being thrown
+        # away.
+        found = backend.list_resources()
+        resources = [r.resource for r in found]
+        resource_details = [
+            {
+                "resource": r.resource,
+                "interface": r.interface,
+                "interface_type": getattr(r.interface_type, "value", str(r.interface_type)),
+                "idn": r.idn,
+                "error": r.error,
+            }
+            for r in found
+        ]
         backend.disconnect()
     except Exception as exc:  # noqa: BLE001 - reported, not raised
         error = f"{type(exc).__name__}: {exc}"
@@ -2469,6 +2487,7 @@ def it8813_diagnose_setup(resource: str | None = None, probe: bool = True) -> di
         "pyvisa_installed": pyvisa_installed,
         "visa_libraries": visa_libraries,
         "visa_resources": resources,
+        "visa_resource_details": resource_details,
         "enumeration_error": error,
         "probe": probe_result,
         "ready": bool(probe_result and probe_result.get("reachable")),
