@@ -37,7 +37,29 @@ version, because every rule below is a consequence of one of these:
 
 ## 1. Before energising anything
 
-Set protection on **both** sides before the supply is enabled, never after.
+**Step 0: ask the user whether the instrument's current configuration matters, and snapshot it only if
+it does — writing that snapshot to a file, not just a print.** If the user says the current state is not
+important, start straight away instead of spending the time. When a snapshot is wanted, the aggregate
+read (`it8813_get_settings`) is not enough:
+the settings that live outside it must be read one by one, either with their own getters or through
+the generic `it8813_query_scpi` — the four range boundaries, `CURRent:SLEW` (and
+`:POSitive`/`:NEGative`), the four transient `MODE`s, `SENSe:AVERage:COUNt` and `SENSe:TIME`, the
+input and trigger timers, display mode, `VOLTage:LATCh`, `RESistance:VDRop`/`:LED`, `SYSTem:POSetup`,
+and the Trace and List configuration.
+
+Two things cannot be recovered afterwards, because writing them **overwrites** rather than versions
+them: the user registers (`*SAV n` / `*RCL n`) and the stored List banks (`LIST:SAV n`). Store those
+two to a file first if their contents matter.
+
+**Treat an early snapshot as provisional.** On a freshly integrated instrument the first sweep happens
+before the typed getters exist, so entries can be misread or go unanswered; re-check the snapshot once
+the getters are complete instead of trusting it as-is.
+
+This rule came from a concrete failure: a full-coverage demonstration changed dozens of settings on
+this load, and because no earlier snapshot had been kept, its original configuration could no longer
+be established.
+
+Then set protection on **both** sides before the supply is enabled, never after.
 
 1. Compute the numbers; do not pick them by feel. From the largest working point in the run
    ($I_{max}$), allow 30% for switching overshoot and keep the load trip **below** the supply's
