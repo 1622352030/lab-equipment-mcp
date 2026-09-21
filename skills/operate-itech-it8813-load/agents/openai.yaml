@@ -1,0 +1,4 @@
+interface:
+  display_name: "Operate ITECH IT8813 Load"
+  short_description: "Run the IT8813 electronic load without tripping protection"
+  default_prompt: "Use $operate-itech-it8813-load to run a load experiment on the ITECH IT8813."

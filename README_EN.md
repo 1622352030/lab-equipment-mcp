@@ -117,6 +117,30 @@ Example:
 Use $add-lab-equipment-device to add a power supply with RS-232 and LAN support.
 ```
 
+The repository also ships an
+[`operate-itech-it8813-load`](skills/operate-itech-it8813-load/SKILL.md) Skill for **using** an
+already-integrated ITECH IT8813 electronic load (rather than writing its driver). It starts from
+how DC electronic loads behave in general, then gives the model-specific rules — **every rule
+corresponds to a real bench incident**:
+
+- a load only sinks current and can never raise a voltage; which regulation mode pairs with a
+  constant-voltage supply and which one requires turning the supply into a current source
+- hardware protection **clamps** while software protection **trips**: `POWer:CONFig` set to 1 W
+  capped the whole instrument at 1 W without reporting anything
+- global registers left by an earlier experiment silently change the next one
+- ordering the manual does not state but the instrument enforces: configure List before switching
+  to List mode; transient and trace need a trigger
+- verification discipline: read back and check the error queue (settings are silently ignored in
+  local mode), the buzzer is not an error indicator, and the known storage fault on this unit
+- References: [`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md)
+  and [`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md)
+
+Example:
+
+```text
+Use $operate-itech-it8813-load to run a protected stepped-load experiment on this instrument.
+```
+
 ## Requirements
 
 - Windows 10 or Windows 11.

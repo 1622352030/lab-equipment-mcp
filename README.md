@@ -113,6 +113,30 @@ Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已�
 使用 $add-lab-equipment-device 为这个项目增加一台支持 RS-232 和 LAN 的电源。
 ```
 
+仓库另提供 [`operate-itech-it8813-load`](skills/operate-itech-it8813-load/SKILL.md)
+Skill，供 Agent **使用**已接入的 ITECH IT8813 电子负载（而不是为它写驱动）。它先讲
+电子负载这一类设备的通用原理，再给出本型号的实操规则——**每条规则都对应一个真实
+事故**：
+
+- 电子负载只能单向吸流，不能升压；哪种调节模式该配恒压源、哪种必须把电源改成
+  电流源（CV 与恒压源对接会让两个电压源对打，触发保护）
+- 硬件保护是**限幅**、软件保护是**跳闸**：`POWer:CONFig` 设成 1 W 会把整机功率
+  卡在 1 W，而它不报任何错
+- 前一个实验留下的全局寄存器（`POWer:CONFig`、`VOLTage:ON` 等）会静默改变后一个
+  实验的行为
+- 手册未言明但仪器强制的顺序：List 要先配参数再切模式；瞬态与 Trace 必须先给触发
+- 验证纪律：写后读回并查错误队列（本地模式下设置会被静默忽略）；蜂鸣器不是错误
+  指示器；本机自检的存储故障与 `*RST` 失效项
+- 参考文档：[`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md)
+  （电子负载通用常识）、[`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md)
+  （一轮实机演示的电路计算与实测对照）
+
+显式调用示例：
+
+```text
+使用 $operate-itech-it8813-load 用这台电子负载做一次带保护的分段拉载实验。
+```
+
 ## 环境要求
 
 - Windows 10 或 Windows 11。
