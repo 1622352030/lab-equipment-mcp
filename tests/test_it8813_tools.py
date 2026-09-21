@@ -225,3 +225,55 @@ def test_out_of_scope_trigger_source_is_still_reachable_but_flagged() -> None:
     """The tool accepts the documented EXTernal value and flags it rather than hiding it."""
     doc = server.it8813_set_trigger_source.__doc__ or ""
     assert "out of scope" in doc.lower()
+
+
+def test_diagnose_does_not_claim_usb_is_missing_when_a_usbtmc_resource_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: `visa_resources` was built as `str(VisaResource(...))`.
+
+    That string does not start with "USB", so the "no USB VISA resource" recommendation
+    fired whenever *any* resource had been enumerated. Measured on hardware: the tool
+    listed the IT8813's USB resource, probed it successfully, and still advised checking
+    the USB Type-B cable.
+    """
+    from lab_equipment_mcp.core.interfaces import InterfaceType
+
+    class FakeResource:
+        resource = "USB0::0x2EC7::0x8800::800835011777320005::INSTR"
+        interface = "USB0"
+        interface_type = InterfaceType.USBTMC
+        idn = "ITECH Ltd., IT8813, 800835011777320005, 1.39-1.42"
+        error = None
+
+    class FakeBackend:
+        def list_resources(self, **kwargs):  # noqa: ANN003, ANN201
+            return [FakeResource()]
+
+        def connect(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+            return FakeResource.idn
+
+        def query(self, command):  # noqa: ANN001, ANN201
+            return FakeResource.idn
+
+        def write(self, command):  # noqa: ANN001, ANN201
+            pass
+
+        def disconnect(self):  # noqa: ANN201
+            pass
+
+    monkeypatch.setattr(server, "VisaBackend", FakeBackend)
+    result = server.it8813_diagnose_setup(probe=True)
+
+    assert result["visa_resources"] == [FakeResource.resource]
+    assert result["visa_resource_details"] == [
+        {
+            "resource": FakeResource.resource,
+            "interface": "USB0",
+            "interface_type": "usbtmc",
+            "idn": FakeResource.idn,
+            "error": None,
+        }
+    ]
+    assert result["probe"]["reachable"] is True
+    assert not any("No USB VISA resource" in item for item in result["recommendations"])
