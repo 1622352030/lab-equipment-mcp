@@ -24,6 +24,7 @@ GitHub 仓库：<https://github.com/1622352030/lab-equipment-mcp>
 | Maynuo（美尔诺） | [M8811](docs/maynuo/M8811.md) | M133/兼容 USB-TTL、M131/RS-232、M132/RS-485 | CH340 USB-TTL 身份、设置、安全保护及 200 Ω 负载下 FIX/LIST 输出与内部测量已实机验证；M131/M132 未实机验证 |
 | Fluke（福禄克） | [8808A](docs/fluke/8808A.md) | RS-232（DB9，经 USB 转串口适配器） | 身份与序列号脱敏、双消息应答协议、全部写操作（功能/量程/速率/格式/调节器/比对/触发/保存调用/`*RST`/远程本地）、面板回显、双显示及 SDG1062X 接收闭环均已实机验证；外触发类型 2-5、`*TST?`（该固件未实现）与总线 SRQ 未实测 |
 | ITECH（艾德克斯） | [IT7321](docs/itech/IT7321.md) | LAN Socket（默认端口 30000） | 身份与序列号脱敏、远程/本地模式、LAN 单会话协议、电压与频率读写回、**三层 30 V 输出上限**（含设备侧拒绝超压）、8808A 接收闭环（5/10/20/30 V 误差 <1%）、**真实带电过压监控**（52 ms 切断输出）、**列表阶梯**（4 步 5/10/15/20 V）、**扫描阶梯**（起始 5 V／步进 5 V／终止 20 V）、**前沿与后沿调光削波**（示波器采样验证）、电源自身测量与 8808A 相对比对均已实机验证；电流保护跳闸需用户确认后做，BNC 与三相「本型号没有」，`VOLT:UNIT` 回读为固件限制，详见设备指南 |
+| ITECH（艾德克斯） | [IT8813](docs/itech/IT8813.md) | USB Type-B（**USBTMC**）、RS-232（DB-9） | 身份与序列号脱敏、远程模式、**输入使能与回读**、CC 模式设定、**OCP/OPP 保护设置**、自身电压/电流/功率测量，以及**与 M8811 直流源的闭环带载验收**（5 V／0.1 A，两侧电流差 **0.00%**、电压差 0.12%）均已实机验证；瞬态／List／Trace／SENSe／触发／显示等已实现未实测，RS-232 本次未接线，后面板的电流监测、远端量测、外部触发、0-10 V 模拟量与外部信号控制接口为**本次范围外**，详见设备指南 |
 
 DPO2012B 使用机身后部的 USB Type-B 设备端口进行 USBTMC/VISA 通信。安装可选
 DPO2CONN 模块后，编程手册还支持 Ethernet/VXI-11；通过 TEK-USB-488 适配器可桥接 GPIB。
@@ -48,6 +49,13 @@ IT7321 通过 LAN 控制，默认使用 **Socket 端口 30000**（不是 5025）
 命令既不能读也不能改。工控机需要与设备同网段，并且该设备**同时只接受一个 TCP 会话**。
 另外，远程控制前必须先发 `SYST:REM`，否则设备会拒绝所有设置命令（查询仍正常应答）。
 详见 [IT7321 使用说明](docs/itech/IT7321.md)。
+
+IT8813 的 USB Type-B 口是 **USBTMC**（USB488），Windows 中显示为
+`USB Test and Measurement Device`，通过 `USB...::INSTR` 访问，**不是虚拟串口**。
+同一型号另有 DB-9 RS-232 口，其波特率、奇偶与流控**只能从面板设置且命令不可读回**，
+本次未接该接口的线。**负载输入必须显式确认后才使能**，且集成期有 **1 A／30 W** 的
+软件上限；后面板的电流监测、远端量测、外部触发、0-10 V 模拟量与外部信号控制接口
+属于**本次范围外**。详见 [IT8813 使用说明](docs/itech/IT8813.md)。
 
 ## 项目结构
 
@@ -76,7 +84,8 @@ src/lab_equipment_mcp/
 |       `-- fluke_8808a.py       # 8808A 功能、量程、调节器和测量查询
 |   `-- itech/
 |       |-- diagnostics.py       # LAN 网段检查与 Socket 端口身份探测
-|       `-- it7321.py            # IT7321 交流电源 SCPI 与 30 V 输出上限
+|       |-- it7321.py            # IT7321 交流电源 SCPI 与 30 V 输出上限
+|       `-- it8813.py            # IT8813 电子负载 SCPI、双接口与输入使能闸门
 `-- server.py                    # MCP 工具注册入口
 ```
 
@@ -103,6 +112,57 @@ Skill，供 Codex 或其他兼容 Agent 按标准流程增加新设备或为已�
 ```text
 使用 $add-lab-equipment-device 为这个项目增加一台支持 RS-232 和 LAN 的电源。
 ```
+
+接入一台设备后，流程还要求**最后**为它配套一个**设备专属使用 Skill**：MCP 工具只说明
+"能做什么"，Skill 说明"怎么组合才不会做错"——哪种模式不能对着哪种源、哪些设置会残留到
+下一次实验、手册没写但仪器强制的顺序、以及哪些验证判据会骗人。要求、命名与骨架见
+[`references/usage-skill.md`](skills/add-lab-equipment-device/references/usage-skill.md)，
+由 G5 关卡验收（在实机验收之后、提交之前完成）。
+
+仓库另提供 [`operate-itech-it8813-load`](skills/operate-itech-it8813-load/SKILL.md)
+Skill，供 Agent **使用**已接入的 ITECH IT8813 电子负载（而不是为它写驱动）。它先讲
+电子负载这一类设备的通用原理，再给出本型号的实操规则——**每条规则都对应一个真实
+事故**：
+
+- 电子负载只能单向吸流，不能升压；哪种调节模式该配恒压源、哪种必须把电源改成
+  电流源（CV 与恒压源对接会让两个电压源对打，触发保护）
+- 硬件保护是**限幅**、软件保护是**跳闸**：`POWer:CONFig` 设成 1 W 会把整机功率
+  卡在 1 W，而它不报任何错
+- 前一个实验留下的全局寄存器（`POWer:CONFig`、`VOLTage:ON` 等）会静默改变后一个
+  实验的行为
+- 手册未言明但仪器强制的顺序：List 要先配参数再切模式；瞬态与 Trace 必须先给触发
+- 验证纪律：写后读回并查错误队列（本地模式下设置会被静默忽略）；蜂鸣器不是错误
+  指示器；本机自检的存储故障与 `*RST` 失效项
+- 参考文档：[`references/load-fundamentals.md`](skills/operate-itech-it8813-load/references/load-fundamentals.md)
+  （电子负载通用常识）、[`references/worked-example.md`](skills/operate-itech-it8813-load/references/worked-example.md)
+  （一轮实机演示的电路计算与实测对照）
+
+显式调用示例：
+
+```text
+使用 $operate-itech-it8813-load 用这台电子负载做一次带保护的分段拉载实验。
+```
+
+### 把 Skill 安装到本机 Agent
+
+`install-codex.ps1` 只注册 MCP **服务器**，不安装 Skill —— 放在仓库里的 Skill
+必须复制到运行时扫描的目录，Agent 才看得见。用
+[`scripts/install-skills.ps1`](scripts/install-skills.ps1) 一键完成：
+
+```powershell
+scripts\install-skills.ps1                                   # 全部 Skill → 本机所有运行时
+scripts\install-skills.ps1 -Skill operate-itech-it8813-load   # 只装指定的
+scripts\install-skills.ps1 -SkipExisting                      # 不动已安装的
+scripts\install-skills.ps1 -Uninstall -Skill <名称>           # 卸载（必须点名，防误删）
+```
+
+| 目标 | 目录 |
+| --- | --- |
+| `dsh` | `%APPDATA%\dsh-desktop\harness\skills` |
+| `codex` | `%USERPROFILE%\.codex\skills` |
+
+目标目录**不存在时会被跳过**而不是被创建；安装后请新开一个任务（或重启运行时）
+让它重新扫描技能目录。
 
 ## 环境要求
 
@@ -723,6 +783,43 @@ $V_p/2$）、**电源自身测量与 8808A 相对比对**（5～20 V 偏差 <1%�
 `VOLT:UNIT` 回读为固件限制。LAN 参数只能面板设置，命令不可读写。
 
 [IT7321 使用说明](docs/itech/IT7321.md)。
+
+## ITECH IT8813 工具
+
+IT8813 是 120 V / 6 A（60 A 高档）/ 750 W 的直流电子负载。USB Type-B 口是
+**USBTMC**（USB488），**不是虚拟串口**；同一型号另有 DB-9 RS-232 口，其波特率、
+奇偶与流控只能从面板设置且命令不可读回。命令集是标准 SCPI。
+
+**负载输入必须显式确认后才使能**：`it8813_set_input(..., confirm_enable=true)`——
+开启输入就是把负载跨接在已接线的电源上，这是本设备唯一会真正移动能量的操作。
+集成期还有 **1 A／30 W 的软件上限**（可用 `LAB_EQUIPMENT_IT8813_MAX_CURRENT_A` /
+`_MAX_POWER_W` 覆盖，**放开前须用户同意**）。另有 `it8813_set_input_short`（有意的
+短路）与 `it8813_write_scpi`（绕过全部检查）两处额外闸门，以及 `reset`／`preset`／
+`recall_state` 的状态替换确认。
+
+**已实机验证**（2026-09-21，固件 1.39-1.42）：身份与序列号脱敏、远程模式、输入使能
+与回读、CC 模式设定、OCP/OPP 保护设置、自身电压/电流/功率测量，以及与 M8811 直流源
+的**闭环带载验收**——源 5 V／限流 0.5 A／过压保护 20 V，负载 CC 拉载 0.1 A，
+**两侧电流读数差 0.00%、电压差 0.12%**，错误队列两侧均空。
+
+**本次范围外**：后面板的电流监测端子、远端量测端子、外部触发端子、外部模拟量
+0-10 V 控制端子与外部信号控制接口所涉及的功能**不做、不提供工具**，文档记为范围外
+而非型号限制。GPIB 为 `(G)` 型号特有，**本型号不具备**。
+
+- `it8813_diagnose_setup`、`it8813_connect`、`it8813_disconnect`、`it8813_identify`、`it8813_get_endpoint`
+- **safety**: `it8813_set_input`、`it8813_set_input_short`、`it8813_set_current`、`it8813_set_power`、`it8813_set_current_protection`、`it8813_set_power_protection`、`it8813_clear_protection`
+- state: `it8813_get_settings`、`it8813_get_errors`、`it8813_clear_errors`、`it8813_clear_system`、`it8813_press_key`、`it8813_get_identity_info`、`it8813_self_test`、`it8813_get_status_registers`、`it8813_set_status_enable`、`it8813_status_preset`
+- system: `it8813_reset`、`it8813_preset`、`it8813_set_remote`、`it8813_set_display_text`、`it8813_set_display_mode`、`it8813_save_state`、`it8813_recall_state`
+- function and input: `it8813_set_function`、`it8813_get_function`、`it8813_set_function_mode`、`it8813_get_input`、`it8813_set_input_timer`、`it8813_set_transient_state`
+- current: `it8813_get_current`、`it8813_set_current_range`、`it8813_get_current_protection`、`it8813_set_current_slew`、`it8813_set_current_transient`
+- voltage: `it8813_set_voltage`、`it8813_get_voltage`、`it8813_set_voltage_range`、`it8813_set_voltage_on`、`it8813_set_voltage_latch`、`it8813_set_voltage_transient`
+- resistance: `it8813_set_resistance`、`it8813_get_resistance`、`it8813_set_resistance_range`、`it8813_set_resistance_transient`、`it8813_set_resistance_features`
+- power: `it8813_set_power`、`it8813_get_power`、`it8813_set_power_range`、`it8813_get_power_protection`、`it8813_set_power_config`、`it8813_set_power_transient`
+- measurement: `it8813_measure_voltage`、`it8813_measure_current`、`it8813_measure_power`、`it8813_measure_all`、`it8813_fetch_voltage`、`it8813_fetch_current`、`it8813_fetch_power`、`it8813_fetch_voltage_max`、`it8813_fetch_voltage_min`、`it8813_fetch_current_max`、`it8813_fetch_current_min`、`it8813_get_measurement_info`
+- trigger / trace / list / sense: `it8813_trigger`、`it8813_set_trigger_source`、`it8813_set_trigger_timer`、`it8813_set_trace`、`it8813_get_trace_settings`、`it8813_clear_trace`、`it8813_read_trace`、`it8813_set_list`、`it8813_set_list_step`、`it8813_get_list_step`、`it8813_get_list_settings`、`it8813_save_list`、`it8813_recall_list`、`it8813_set_sense_average`
+- **complete entry point**: `it8813_query_scpi`、`it8813_write_scpi`（后者需 `confirm_unsafe=true`）
+
+详见 [IT8813 使用说明](docs/itech/IT8813.md)。
 
 ## 增加其他设备
 

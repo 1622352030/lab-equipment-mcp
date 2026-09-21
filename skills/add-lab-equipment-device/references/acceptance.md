@@ -57,6 +57,21 @@
 - [ ] Binary/waveform/data transfer is validated when the device exposes it.
 - [ ] Logs and documentation redact device serial numbers unless publication is authorized.
 
+## Device Usage Skill
+
+- [ ] Written **after** hardware acceptance, so it can draw on everything the task turned up.
+- [ ] `skills/<verb>-<vendor>-<model>-<class>/` exists with `SKILL.md`, `agents/openai.yaml` and
+      `references/`.
+- [ ] SKILL.md opens with how this class of instrument behaves (manual pages cited) before any
+      model-specific rule.
+- [ ] Every pit hit during the task appears as a rule, naming the symptom it prevents and carrying
+      the measured numbers.
+- [ ] Ordering constraints the manual does not state, settings that persist across experiments,
+      writes that can be silently ignored, and "looks like a fault" behaviours are all covered.
+- [ ] Out-of-scope terminals/commands and model limitations are stated explicitly.
+- [ ] Device guide and Skill link to each other, and both READMEs list the Skill.
+- [ ] `scripts/install-skills.ps1` has been run and the Skill appears in the runtime's skill list.
+
 ## Git and Review
 
 - [ ] Work is on a feature branch based on current upstream `main`.

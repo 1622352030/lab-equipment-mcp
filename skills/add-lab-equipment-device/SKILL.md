@@ -43,6 +43,7 @@ stating that the work was done.
 | G2 Blast-radius list | touching `core/` or any shared code | every caller, its transport, whether it can be verified now, and the rollback if not | user |
 | G3 Coverage matrix | claiming an interface is "tested" | feature group by interface, with unrun cells marked unverified | self |
 | G4 Change authorisation | changing host network, device state, or enabling output | what changes, what it affects, how to revert | user |
+| G5 Usage Skill | finalising the PR, after acceptance | the device's `skills/<name>/`: class fundamentals with page numbers, every pit from this task traced to numbers, registered in both READMEs and installed locally | self |
 
 Templates, pass conditions, and a worked G1 example: [gates.md](references/gates.md).
 
@@ -112,7 +113,24 @@ the gate.
     and record the observation as user-observed, not agent-measured. SCPI read-back alone remains
     lower-confidence. Restore the original safe state in a `finally` path. Produce the G3 coverage
     matrix before writing the word "tested" anywhere.
-13. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
+13. Write the device's usage Skill **last** - after every experiment, acceptance run and wrong turn
+    is behind you - because its two source materials only become complete by then: how this class of
+    instrument actually behaves, and every pit you fell into while writing and exercising the MCP
+    layer (a wrong command, a write silently ignored, protection latched, a reading that made no
+    sense, a manual statement that turned out untrue on this firmware). **Keep a scratch list of
+    those incidents as they happen** - a Skill written from memory keeps the memorable mistakes and
+    loses exactly the expensive ones, and a Skill written before acceptance has nothing to draw on
+    but the manual.
+
+    Put it under `skills/<verb>-<vendor>-<model>-<class>/` and register it in both READMEs. The MCP
+    tools say what the instrument can be asked to do; the Skill says how to combine those commands
+    without producing a wrong result - which mode may not face which kind of source, which settings
+    persist into the next experiment, which orderings the instrument enforces although the manual
+    never states them, and which behaviour only looks like a fault. Start from the instrument class
+    (with manual page numbers), then give the model rules, each naming the symptom it prevents and
+    traced to one of the recorded incidents, with numbers. Required content, naming and skeleton:
+    [usage-skill.md](references/usage-skill.md); checkpoint: G5 in [gates.md](references/gates.md).
+14. Commit focused changes. Push to the contributor's fork or, when authorized, push the branch to
     the owner's repository and open/prepare a pull request. Report untested interfaces and residual
     risks explicitly. Every host or instrument change made along the way needed G4 authorisation
     first; list anything that was changed outside the repository and how it was reverted.
@@ -141,6 +159,11 @@ the gate.
   not be described as physical output validation.
 - Never bundle vendor installers, manuals with restrictive licenses, credentials, serial numbers,
   or captured private lab data into the repository.
+- Capability and usage are separate deliverables, and the usage Skill comes last. The MCP tools and
+  the device guide record what the instrument can be asked to do; the Skill records how to combine
+  those commands without producing a wrong result, drawing on the instrument's general behaviour
+  and on every wrong turn taken while building the driver. A device is not finished when all of
+  its commands merely work.
 - Keep compatibility with all already-supported equipment. Run the complete suite, not only the new
   device tests.
 
@@ -150,6 +173,8 @@ the gate.
 - MCP tools with annotations and safety controls
 - Unit tests for identity, parsing, limits, interface selection, and error paths
 - Device-specific guide and supported-equipment table update
+- Device usage Skill, written last: instrument-class fundamentals plus every pit from this task,
+  each traced to measurements, registered in both READMEs and installed locally
 - Real-hardware smoke-test evidence for each interface labeled "tested"
 - Clean Git branch with reviewable commits and no generated/cached artifacts
 
