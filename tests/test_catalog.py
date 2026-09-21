@@ -44,3 +44,13 @@ def test_catalog_exposes_device_interfaces() -> None:
     assert devices[6]["model"] == "8808A"
     assert {item["interface_type"] for item in devices[6]["interfaces"]} == {"rs232"}
     assert devices[6]["interfaces"][0]["connection_notes"]
+    assert devices[7]["vendor"] == "ITECH"
+    assert devices[7]["model"] == "IT7321"
+    assert {item["interface_type"] for item in devices[7]["interfaces"]} == {"lan-socket"}
+    assert devices[8]["vendor"] == "ITECH"
+    assert devices[8]["model"] == "IT8813"
+    # USB Type-B is USBTMC on this model, and RS-232 is declared separately with its own
+    # front-panel-only session settings rather than being hidden inside the USB entry.
+    assert {item["interface_type"] for item in devices[8]["interfaces"]} == {"usbtmc", "rs232"}
+    assert devices[8]["interfaces"][0]["connection_notes"]
+    assert len(devices) == 9

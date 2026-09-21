@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from .core.host_diagnostics import find_visa_libraries
 from .core.transports.visa import VisaBackend
 from .devices.agilent.diagnostics import diagnose_host as diagnose_agilent33500b_host
 from .devices.agilent.dsox2012a import AgilentDSOX2012A
@@ -31,6 +32,16 @@ from .devices.itech.it7321 import (
     default_resource,
     test_voltage_limit_v,
 )
+from .devices.itech.it8813 import (
+    IT8813,
+    IT8813_CURRENT_LIMIT_ENV,
+    IT8813_DEFAULT_RESOURCE,
+    IT8813_POWER_LIMIT_ENV,
+    IT8813_RESOURCE_ENV,
+)
+from .devices.itech.it8813 import default_resource as it8813_default_resource
+from .devices.itech.it8813 import test_current_limit_a as it8813_current_limit_a
+from .devices.itech.it8813 import test_power_limit_w as it8813_power_limit_w
 from .devices.maynuo.diagnostics import diagnose_host as diagnose_m8811_host
 from .devices.maynuo.m8811 import M8811
 from .devices.siglent.diagnostics import diagnose_host as diagnose_sdg1062x_host
@@ -55,6 +66,8 @@ sdg1062x = SDG1000X(sdg1062x_backend)
 m8811 = M8811(m8811_backend)
 fluke8808a = Fluke8808A(fluke8808a_backend)
 it7321 = IT7321(it7321_backend)
+it8813_backend = VisaBackend()
+it8813 = IT8813(it8813_backend)
 mcp = FastMCP(
     "lab-equipment-mcp",
     instructions=(
@@ -72,6 +85,14 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldH
 STATE_CHANGE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=False,
+)
+# For operations that can move real energy or replace a verified setup: energising the
+# load input, the deliberate short, and the raw SCPI escape hatch.
+STATE_CHANGE_DESTRUCTIVE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
     idempotentHint=False,
     openWorldHint=False,
 )
@@ -2362,6 +2383,1014 @@ def it7321_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, A
     return {"command": command}
 
 
+# --- ITECH IT8813 (electronic load, USBTMC / RS-232) -------------------------
+#
+# Two safety rules are enforced here as well as in the driver:
+#
+#   1. the load input is energised only through `it8813_set_input`, which requires
+#      `confirm_enable=True`. An enabled load across a live source is the one action
+#      in this file that can damage the bench, so it is never implicit.
+#   2. the CC and CW setpoints are capped by the test-phase ceilings
+#      (`IT8813_TEST_CURRENT_LIMIT_A` / `_POWER_LIMIT_W`, overridable with
+#      `LAB_EQUIPMENT_IT8813_MAX_CURRENT_A` / `_MAX_POWER_W`), not by the 6 A / 750 W
+#      instrument rating.
+#
+# `SYST:REM` is required before any command that changes a setting; `it8813_connect`
+# sends it. Reset, preset and recall are guarded because they replace a verified setup.
+#
+# OUT OF SCOPE this round: the rear panel also carries current-monitoring terminals,
+# remote-sense / external-trigger / 0-10 V analogue terminals and an external signal
+# control interface. No tool is exposed for the features behind them, and they are
+# recorded as out of scope - not as capabilities the model lacks - in
+# docs/itech/IT8813.md.
+
+
+@mcp.tool(name="it8813_diagnose_setup", annotations=READ_ONLY)
+def it8813_diagnose_setup(resource: str | None = None, probe: bool = True) -> dict[str, Any]:
+    """Check the VISA runtime, the USB enumeration and the identity of an IT8813.
+
+    `resource` defaults to the configured endpoint (`it8813_get_endpoint`). `probe`
+    sends a read-only `*IDN?`. The USB Type-B connector carries USBTMC, so the host
+    should list a "USB Test and Measurement Device" and a `USB...::INSTR` resource;
+    this is not a virtual COM port.
+    """
+    import importlib.util as _ilu
+
+    target = resource or it8813_default_resource()
+    pyvisa_installed = _ilu.find_spec("pyvisa") is not None
+    visa_libraries = find_visa_libraries()
+    resources: list[str] = []
+    probe_result: dict[str, Any] | None = None
+    error: str | None = None
+    try:
+        backend = VisaBackend()
+        resources = [str(r) for r in backend.list_resources()]
+        backend.disconnect()
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        error = f"{type(exc).__name__}: {exc}"
+
+    if probe:
+        probe_backend = VisaBackend()
+        try:
+            driver = IT8813(probe_backend)
+            identity = driver.connect(target, timeout_ms=5000, remote=False)
+            probe_result = {
+                "reachable": True,
+                "model": identity.model,
+                "version": identity.version,
+                "identity": identity.redacted,
+            }
+            driver.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            probe_backend.disconnect()
+            probe_result = {
+                "reachable": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    recommendations: list[str] = []
+    if not visa_libraries:
+        recommendations.append("Install a VISA runtime so the driver can open USBTMC.")
+    if not pyvisa_installed:
+        recommendations.append("PyVISA is not installed; run `uv sync` in the repository.")
+    if resources and not any(r.upper().startswith("USB") for r in resources):
+        recommendations.append(
+            "No USB VISA resource is present; check the USB Type-B cable and that the "
+            "instrument shows as 'USB Test and Measurement Device' in Device Manager."
+        )
+    if probe_result is not None and not probe_result["reachable"]:
+        recommendations.append(
+            f"{target} did not answer *IDN?. Another client may hold the session, or the "
+            "resource string may be for a different unit."
+        )
+
+    return {
+        "resource": target,
+        "pyvisa_installed": pyvisa_installed,
+        "visa_libraries": visa_libraries,
+        "visa_resources": resources,
+        "enumeration_error": error,
+        "probe": probe_result,
+        "ready": bool(probe_result and probe_result.get("reachable")),
+        "recommendations": recommendations,
+        "note": (
+            "USB Type-B on this model is USBTMC (programming guide 'USB-TMC', printed "
+            "p9), not a virtual COM port. RS-232 is a separate DB-9 transport whose "
+            "baud rate, parity and flow control are front-panel only."
+        ),
+    }
+
+
+@mcp.tool(name="it8813_get_endpoint", annotations=READ_ONLY)
+def it8813_get_endpoint() -> dict[str, Any]:
+    """Report the VISA resource currently in force and where it comes from.
+
+    The address lives in one place in the driver and can be overridden with
+    `LAB_EQUIPMENT_IT8813_RESOURCE`, so pointing at a different unit is one edit.
+    """
+    import os as _os
+
+    return {
+        "resource": it8813_default_resource(),
+        "default_resource": IT8813_DEFAULT_RESOURCE,
+        "resource_env": IT8813_RESOURCE_ENV,
+        "resource_env_value": _os.getenv(IT8813_RESOURCE_ENV),
+        "current_limit_a": it8813_current_limit_a(),
+        "power_limit_w": it8813_power_limit_w(),
+        "current_limit_env": IT8813_CURRENT_LIMIT_ENV,
+        "power_limit_env": IT8813_POWER_LIMIT_ENV,
+    }
+
+
+@mcp.tool(name="it8813_connect", annotations=STATE_CHANGE)
+def it8813_connect(resource: str | None = None, timeout_ms: int = 5000) -> dict[str, Any]:
+    """Connect over USBTMC or RS-232, verify identity, and enter remote mode.
+
+    `resource` defaults to the configured endpoint. `SYST:REM` is sent because the
+    programming guide requires it before any command that changes a setting (chapter 3,
+    printed p16); queries answer without it, so the identity check runs first.
+    """
+    if not 500 <= timeout_ms <= 30000:
+        raise ValueError("timeout_ms must be between 500 and 30000")
+    target = resource or it8813_default_resource()
+    identity = it8813.connect(target, timeout_ms)
+    return {
+        "resource": target,
+        "manufacturer": identity.manufacturer,
+        "model": identity.model,
+        "version": identity.version,
+        "identity": identity.redacted,
+        "current_limit_a": it8813_current_limit_a(),
+        "power_limit_w": it8813_power_limit_w(),
+    }
+
+
+@mcp.tool(name="it8813_disconnect", annotations=STATE_CHANGE)
+def it8813_disconnect() -> dict[str, Any]:
+    """Disable the input, hand the panel back to the operator, and close the session."""
+    it8813.disconnect()
+    return {"connected": False}
+
+
+@mcp.tool(name="it8813_identify", annotations=READ_ONLY)
+def it8813_identify() -> dict[str, Any]:
+    """`*IDN?` with the serial number redacted (programming guide, printed p79)."""
+    return it8813.identify()
+
+
+@mcp.tool(name="it8813_get_settings", annotations=READ_ONLY)
+def it8813_get_settings() -> dict[str, Any]:
+    """Read the mode, setpoints, ranges, protection and input state in one call."""
+    return {
+        "identity": it8813.identity.redacted,
+        "resource": it8813.resource,
+        "function": it8813.function_query(),
+        "function_mode": it8813.function_mode_query(),
+        "input": it8813.input_query(),
+        "input_short": it8813.input_short_query(),
+        "current_a": it8813.current_query(),
+        "current_range_a": it8813.current_range_query(),
+        "current_protection_level_a": it8813.current_protection_level_query(),
+        "current_protection_state": it8813.current_protection_state_query(),
+        "current_protection_delay_s": it8813.current_protection_delay_query(),
+        "voltage_v": it8813.voltage_query(),
+        "voltage_range_v": it8813.voltage_range_query(),
+        "resistance_ohm": it8813.resistance_query(),
+        "resistance_range_ohm": it8813.resistance_range_query(),
+        "power_w": it8813.power_query(),
+        "power_range_w": it8813.power_range_query(),
+        "power_protection_w": it8813.power_protection_level_query(),
+        "power_protection_delay_s": it8813.power_protection_delay_query(),
+        "transient_state": it8813.transient_state_query(),
+        "trigger_source": it8813.trigger_source_query(),
+        "current_limit_a": it8813_current_limit_a(),
+        "power_limit_w": it8813_power_limit_w(),
+    }
+
+
+@mcp.tool(name="it8813_get_errors", annotations=READ_ONLY)
+def it8813_get_errors(limit: int = 10) -> dict[str, Any]:
+    """Drain the error queue.
+
+    The queue answers `0,"No error"` - a code and a **quoted** message - unlike the
+    IT7321's unquoted form. This model has no beeper, so the queue is the only record.
+    """
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be 1-50")
+    return {"errors": it8813.drain_errors(limit)}
+
+
+@mcp.tool(name="it8813_clear_errors", annotations=STATE_CHANGE)
+def it8813_clear_errors() -> dict[str, Any]:
+    """`*CLS` - clear the event registers and the error queue (printed p77)."""
+    return it8813.clear_status()
+
+
+@mcp.tool(name="it8813_clear_system", annotations=STATE_CHANGE)
+def it8813_clear_system() -> dict[str, Any]:
+    """`SYSTem:CLEar` - the system-level clear (printed p25).
+
+    A **different** command from `*CLS`: the guide documents both, in different chapters.
+    It has no documented query, so the reply is marked unverified rather than claiming
+    confirmation.
+    """
+    return it8813.clear_system()
+
+
+@mcp.tool(name="it8813_press_key", annotations=STATE_CHANGE_DESTRUCTIVE)
+def it8813_press_key(key: int) -> dict[str, Any]:
+    """`SYSTem:KEY <NR1>` - simulate a front-panel key press, 0 to 255 (printed p27).
+
+    The code is sent exactly as given and **never** translated into a key name: the
+    guide lists the command, its range and its `SYSTem:KEY?` query, but no key-code
+    table exists in either manual. Pressing a key executes it, so the returned
+    `readback` only proves the instrument registered a value - not that the key you
+    meant was the key that ran.
+    """
+    return it8813.press_key(key)
+
+
+@mcp.tool(name="it8813_reset", annotations=STATE_CHANGE)
+def it8813_reset(confirm: bool = False) -> dict[str, Any]:
+    """`*RST` - return the load to its documented defaults (printed p81).
+
+    Guarded: the defaults are not necessarily the settings that were just verified, so
+    a reset mid-test changes the operating point. Pass `confirm=True` deliberately.
+    """
+    return it8813.reset(confirm=confirm)
+
+
+@mcp.tool(name="it8813_preset", annotations=STATE_CHANGE)
+def it8813_preset(confirm: bool = False) -> dict[str, Any]:
+    """`SYSTem:PRESet` - return to the power-on preset (printed p24). Guarded."""
+    return it8813.preset(confirm=confirm)
+
+
+@mcp.tool(name="it8813_set_remote", annotations=STATE_CHANGE)
+def it8813_set_remote(local: bool = False, lockout: bool = False) -> dict[str, Any]:
+    """Enter remote mode, or release the panel with `local=True`.
+
+    `lockout=True` additionally locks the front panel (`SYSTem:RWLock`); release it with
+    `local=True` or by disconnecting.
+    """
+    if local:
+        return it8813.set_local()
+    if lockout:
+        return it8813.set_local_lockout(enabled=True)
+    return it8813.set_remote()
+
+
+@mcp.tool(name="it8813_set_display_text", annotations=STATE_CHANGE)
+def it8813_set_display_text(row: int = 0, text: str = "") -> dict[str, Any]:
+    """Write a message to the front display (printed p28); empty text clears it."""
+    if not text:
+        return it8813.clear_display_text()
+    return it8813.set_display_text(row, text)
+
+
+@mcp.tool(name="it8813_set_display_mode", annotations=STATE_CHANGE)
+def it8813_set_display_mode(mode: str) -> dict[str, Any]:
+    """`DISPlay[:WINDow]:MODE` - NORMal or TEXT (printed p27)."""
+    return it8813.set_display_mode(mode)
+
+
+@mcp.tool(name="it8813_set_function", annotations=STATE_CHANGE)
+def it8813_set_function(function: str) -> dict[str, Any]:
+    """Select the regulation mode: CURRent (CC), RESistance (CR), VOLTage (CV) or POWer (CW).
+
+    These are the guide's own spellings (printed p43); `CC`/`CV` are not accepted.
+    """
+    return it8813.set_function(function)
+
+
+@mcp.tool(name="it8813_get_function", annotations=READ_ONLY)
+def it8813_get_function() -> dict[str, Any]:
+    """`FUNCtion?` and `FUNCtion:MODE?` (printed p43)."""
+    return {"function": it8813.function_query(), "mode": it8813.function_mode_query()}
+
+
+@mcp.tool(name="it8813_set_function_mode", annotations=STATE_CHANGE)
+def it8813_set_function_mode(mode: str) -> dict[str, Any]:
+    """`FUNCtion:MODE` - FIXed or LIST (printed p43)."""
+    return it8813.set_function_mode(mode)
+
+
+@mcp.tool(name="it8813_set_input", annotations=STATE_CHANGE_DESTRUCTIVE)
+def it8813_set_input(enabled: bool, confirm_enable: bool = False) -> dict[str, Any]:
+    """`INPut[:STATe]` - enable or disable the load input (printed p40).
+
+    With the input off the terminals are high impedance. **Enabling puts the load across
+    whatever source is wired to them**, so it requires `confirm_enable=True` after the
+    wiring and the source's limits have been checked. Disabling is always allowed.
+    """
+    return it8813.set_input(enabled, confirm_enable=confirm_enable)
+
+
+@mcp.tool(name="it8813_get_input", annotations=READ_ONLY)
+def it8813_get_input() -> dict[str, Any]:
+    """`INPut[:STATe]?` - `0` or `1` (printed p40)."""
+    return it8813.input_query()
+
+
+@mcp.tool(name="it8813_set_input_short", annotations=STATE_CHANGE_DESTRUCTIVE)
+def it8813_set_input_short(enabled: bool) -> dict[str, Any]:
+    """`INPut:SHORt[:STATe]` - sink the maximum current of the present range (printed p40).
+
+    A deliberate short. Refused while the input is off, because shorting a live source
+    with the input disabled has no meaning and asking for it is more likely a mistake.
+    """
+    return it8813.set_input_short(enabled)
+
+
+@mcp.tool(name="it8813_clear_protection", annotations=STATE_CHANGE)
+def it8813_clear_protection() -> dict[str, Any]:
+    """`PROTection:CLEar` - reset a latched protection trip (printed p44)."""
+    return it8813.clear_protection()
+
+
+@mcp.tool(name="it8813_set_input_timer", annotations=STATE_CHANGE)
+def it8813_set_input_timer(enabled: bool, delay_s: float | None = None) -> dict[str, Any]:
+    """`INPut:TIMer[:STATe]` and optional `INPut:TIMer:DELay` (printed p41).
+
+    The delay is 1 to 60000 s.
+    """
+    result: dict[str, Any] = {"state": it8813.set_input_timer(enabled)}
+    if delay_s is not None:
+        result["delay"] = it8813.set_input_timer_delay(delay_s)
+    return result
+
+
+@mcp.tool(name="it8813_set_transient_state", annotations=STATE_CHANGE)
+def it8813_set_transient_state(enabled: bool) -> dict[str, Any]:
+    """`TRANsient[:STATe]` - master switch for dynamic mode (printed p44).
+
+    The per-mode transient levels, widths and mode are set with the mode-specific tools.
+    """
+    return it8813.set_transient_state(enabled)
+
+
+@mcp.tool(name="it8813_set_current", annotations=STATE_CHANGE)
+def it8813_set_current(amps: float) -> dict[str, Any]:
+    """`CURRent[:LEVel]` - CC setpoint in amperes (printed p45).
+
+    Capped by the test-phase ceiling (`it8813_get_endpoint` reports it), not by the 6 A
+    rating.
+    """
+    return it8813.set_current(amps)
+
+
+@mcp.tool(name="it8813_get_current", annotations=READ_ONLY)
+def it8813_get_current() -> dict[str, Any]:
+    """`CURRent?` - the CC setpoint, not a measurement (printed p45)."""
+    return it8813.current_query()
+
+
+@mcp.tool(name="it8813_set_current_range", annotations=STATE_CHANGE)
+def it8813_set_current_range(amps: float) -> dict[str, Any]:
+    """`CURRent:RANGe <NRf+>` (printed p45).
+
+    The guide describes the range as chosen by editing a current value: the load picks
+    the range containing it, preferring the higher-resolution one where they overlap.
+    """
+    return it8813.set_current_range(amps)
+
+
+@mcp.tool(name="it8813_set_current_protection", annotations=STATE_CHANGE)
+def it8813_set_current_protection(
+    level_a: float | None = None,
+    delay_s: float | None = None,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Software over-current protection: `CURRent:PROTection:LEVel/DELay/STATe` (printed p49-50).
+
+    Level is in amperes, delay 0 to 60 s. Arming it (`enabled=True`) makes the load drop
+    its input when the current stays above the level for the delay.
+    """
+    result: dict[str, Any] = {}
+    if level_a is not None:
+        result["level"] = it8813.set_current_protection_level(level_a)
+    if delay_s is not None:
+        result["delay"] = it8813.set_current_protection_delay(delay_s)
+    if enabled is not None:
+        result["state"] = it8813.set_current_protection_state(enabled)
+    return result
+
+
+@mcp.tool(name="it8813_get_current_protection", annotations=READ_ONLY)
+def it8813_get_current_protection() -> dict[str, Any]:
+    """Read back the OCP level, delay and armed state (printed p49-50)."""
+    return {
+        "level_a": it8813.current_protection_level_query(),
+        "delay_s": it8813.current_protection_delay_query(),
+        "state": it8813.current_protection_state_query(),
+    }
+
+
+@mcp.tool(name="it8813_set_current_slew", annotations=STATE_CHANGE)
+def it8813_set_current_slew(
+    both: float | None = None,
+    positive: float | None = None,
+    negative: float | None = None,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """`CURRent:SLEW[:BOTH]`, `:POSitive`, `:NEGative` in A/us, and `:SLEWrate:STATe`.
+
+    Separate positive and negative rates are supported (printed p46-48).
+    """
+    result: dict[str, Any] = {}
+    if both is not None:
+        result["both"] = it8813.set_current_slew(both)
+    if positive is not None:
+        result["positive"] = it8813.set_current_slew_positive(positive)
+    if negative is not None:
+        result["negative"] = it8813.set_current_slew_negative(negative)
+    if enabled is not None:
+        result["state"] = it8813.set_current_slewrate_state(enabled)
+    return result
+
+
+@mcp.tool(name="it8813_set_current_transient", annotations=STATE_CHANGE)
+def it8813_set_current_transient(
+    mode: str | None = None,
+    a_amps: float | None = None,
+    b_amps: float | None = None,
+    a_seconds: float | None = None,
+    b_seconds: float | None = None,
+) -> dict[str, Any]:
+    """CC dynamic mode: `CURRent:TRANsient:MODE/ALEVel/BLEVel/AWIDth/BWIDth` (printed p51-52).
+
+    Mode is CONTinuous, PULSe or TOGGle. Enable the feature with
+    `it8813_set_transient_state(True)`.
+    """
+    result: dict[str, Any] = {}
+    if mode is not None:
+        result["mode"] = it8813.set_current_transient_mode(mode)
+    if a_amps is not None or b_amps is not None:
+        result["levels"] = it8813.set_current_transient_levels(a_amps=a_amps, b_amps=b_amps)
+    if a_seconds is not None or b_seconds is not None:
+        result["widths"] = it8813.set_current_transient_widths(
+            a_seconds=a_seconds, b_seconds=b_seconds
+        )
+    return result
+
+
+@mcp.tool(name="it8813_set_voltage", annotations=STATE_CHANGE)
+def it8813_set_voltage(volts: float) -> dict[str, Any]:
+    """`VOLTage[:LEVel]` - CV setpoint in volts (printed p53). Rated maximum 120 V."""
+    return it8813.set_voltage(volts)
+
+
+@mcp.tool(name="it8813_get_voltage", annotations=READ_ONLY)
+def it8813_get_voltage() -> dict[str, Any]:
+    """`VOLTage?` - the CV setpoint, not a measurement (printed p53)."""
+    return it8813.voltage_query()
+
+
+@mcp.tool(name="it8813_set_voltage_range", annotations=STATE_CHANGE)
+def it8813_set_voltage_range(
+    volts: float | None = None, auto: bool | None = None
+) -> dict[str, Any]:
+    """`VOLTage:RANGe` and `VOLTage:RANGe:AUTO[:STATe]` (printed p54)."""
+    result: dict[str, Any] = {}
+    if volts is not None:
+        result["range"] = it8813.set_voltage_range(volts)
+    if auto is not None:
+        result["auto"] = it8813.set_voltage_range_auto(auto)
+    return result
+
+
+@mcp.tool(name="it8813_set_voltage_on", annotations=STATE_CHANGE)
+def it8813_set_voltage_on(volts: float) -> dict[str, Any]:
+    """`VOLTage[:LEVel]:ON` - the CV level at which the input switches on (printed p55)."""
+    return it8813.set_voltage_on(volts)
+
+
+@mcp.tool(name="it8813_set_voltage_latch", annotations=STATE_CHANGE)
+def it8813_set_voltage_latch(enabled: bool) -> dict[str, Any]:
+    """`VOLTage:LATCh[:STATe]` - latch the measured voltage (printed p56)."""
+    return it8813.set_voltage_latch(enabled)
+
+
+@mcp.tool(name="it8813_set_voltage_transient", annotations=STATE_CHANGE)
+def it8813_set_voltage_transient(
+    mode: str | None = None,
+    a_volts: float | None = None,
+    b_volts: float | None = None,
+    a_seconds: float | None = None,
+    b_seconds: float | None = None,
+) -> dict[str, Any]:
+    """CV dynamic mode: `VOLTage:TRANsient:*` (printed p56-58)."""
+    result: dict[str, Any] = {}
+    if mode is not None:
+        result["mode"] = it8813.set_voltage_transient_mode(mode)
+    if a_volts is not None or b_volts is not None:
+        result["levels"] = it8813.set_voltage_transient_levels(a_volts=a_volts, b_volts=b_volts)
+    if a_seconds is not None or b_seconds is not None:
+        result["widths"] = it8813.set_voltage_transient_widths(
+            a_seconds=a_seconds, b_seconds=b_seconds
+        )
+    return result
+
+
+@mcp.tool(name="it8813_set_resistance", annotations=STATE_CHANGE)
+def it8813_set_resistance(ohms: float) -> dict[str, Any]:
+    """`RESistance[:LEVel]` - CR setpoint in ohms (printed p59)."""
+    return it8813.set_resistance(ohms)
+
+
+@mcp.tool(name="it8813_get_resistance", annotations=READ_ONLY)
+def it8813_get_resistance() -> dict[str, Any]:
+    """`RESistance?` - the CR setpoint (printed p59)."""
+    return it8813.resistance_query()
+
+
+@mcp.tool(name="it8813_set_resistance_range", annotations=STATE_CHANGE)
+def it8813_set_resistance_range(ohms: float) -> dict[str, Any]:
+    """`RESistance:RANGe` (printed p60)."""
+    return it8813.set_resistance_range(ohms)
+
+
+@mcp.tool(name="it8813_set_resistance_transient", annotations=STATE_CHANGE)
+def it8813_set_resistance_transient(
+    mode: str | None = None,
+    a_ohms: float | None = None,
+    b_ohms: float | None = None,
+    a_seconds: float | None = None,
+    b_seconds: float | None = None,
+) -> dict[str, Any]:
+    """CR dynamic mode: `RESistance:TRANsient:*` (printed p60-62)."""
+    result: dict[str, Any] = {}
+    if mode is not None:
+        result["mode"] = it8813.set_resistance_transient_mode(mode)
+    if a_ohms is not None or b_ohms is not None:
+        result["levels"] = it8813.set_resistance_transient_levels(a_ohms=a_ohms, b_ohms=b_ohms)
+    if a_seconds is not None or b_seconds is not None:
+        result["widths"] = it8813.set_resistance_transient_widths(
+            a_seconds=a_seconds, b_seconds=b_seconds
+        )
+    return result
+
+
+@mcp.tool(name="it8813_set_resistance_features", annotations=STATE_CHANGE)
+def it8813_set_resistance_features(
+    vdrop_v: float | None = None, led_mode: bool | None = None
+) -> dict[str, Any]:
+    """`RESistance:VDRop` and `RESistance:LED[:STATe]` (printed p63-64).
+
+    VDRop sets the CR voltage-drop threshold; LED mode is the LED test feature.
+    """
+    result: dict[str, Any] = {}
+    if vdrop_v is not None:
+        result["vdrop"] = it8813.set_resistance_vdrop(vdrop_v)
+    if led_mode is not None:
+        result["led"] = it8813.set_resistance_led(led_mode)
+    return result
+
+
+@mcp.tool(name="it8813_set_power", annotations=STATE_CHANGE)
+def it8813_set_power(watts: float) -> dict[str, Any]:
+    """`POWer[:LEVel]` - CW setpoint in watts (printed p64).
+
+    Capped by the test-phase ceiling, not by the 750 W rating.
+    """
+    return it8813.set_power(watts)
+
+
+@mcp.tool(name="it8813_get_power", annotations=READ_ONLY)
+def it8813_get_power() -> dict[str, Any]:
+    """`POWer?` - the CW setpoint (printed p64)."""
+    return it8813.power_query()
+
+
+@mcp.tool(name="it8813_set_power_range", annotations=STATE_CHANGE)
+def it8813_set_power_range(watts: float) -> dict[str, Any]:
+    """`POWer:RANGe` (printed p65)."""
+    return it8813.set_power_range(watts)
+
+
+@mcp.tool(name="it8813_set_power_protection", annotations=STATE_CHANGE)
+def it8813_set_power_protection(
+    level_w: float | None = None, delay_s: float | None = None
+) -> dict[str, Any]:
+    """Software over-power protection: `POWer:PROTection[:LEVel]/:DELay` (printed p68-69).
+
+    Level is capped at the specification's 760 W; delay 0 to 60 s.
+    """
+    result: dict[str, Any] = {}
+    if level_w is not None:
+        result["level"] = it8813.set_power_protection_level(level_w)
+    if delay_s is not None:
+        result["delay"] = it8813.set_power_protection_delay(delay_s)
+    return result
+
+
+@mcp.tool(name="it8813_get_power_protection", annotations=READ_ONLY)
+def it8813_get_power_protection() -> dict[str, Any]:
+    """Read back the OPP level and delay (printed p68-69)."""
+    return {
+        "level_w": it8813.power_protection_level_query(),
+        "delay_s": it8813.power_protection_delay_query(),
+    }
+
+
+@mcp.tool(name="it8813_set_power_config", annotations=STATE_CHANGE)
+def it8813_set_power_config(watts: float) -> dict[str, Any]:
+    """`POWer:CONFig[:LEVel]` (printed p70)."""
+    return it8813.set_power_config(watts)
+
+
+@mcp.tool(name="it8813_set_power_transient", annotations=STATE_CHANGE)
+def it8813_set_power_transient(
+    mode: str | None = None,
+    a_watts: float | None = None,
+    b_watts: float | None = None,
+    a_seconds: float | None = None,
+    b_seconds: float | None = None,
+) -> dict[str, Any]:
+    """CW dynamic mode: `POWer:TRANsient:*` (printed p65-67).
+
+    The documented width band here is narrower than for current and voltage: 50 to
+    65535 microseconds.
+    """
+    result: dict[str, Any] = {}
+    if mode is not None:
+        result["mode"] = it8813.set_power_transient_mode(mode)
+    if a_watts is not None or b_watts is not None:
+        result["levels"] = it8813.set_power_transient_levels(a_watts=a_watts, b_watts=b_watts)
+    if a_seconds is not None or b_seconds is not None:
+        result["widths"] = it8813.set_power_transient_widths(
+            a_seconds=a_seconds, b_seconds=b_seconds
+        )
+    return result
+
+
+@mcp.tool(name="it8813_measure_voltage", annotations=READ_ONLY)
+def it8813_measure_voltage() -> dict[str, Any]:
+    """`MEASure:VOLTage?` - trigger a fresh reading (printed p29)."""
+    return it8813.measure_voltage()
+
+
+@mcp.tool(name="it8813_measure_current", annotations=READ_ONLY)
+def it8813_measure_current() -> dict[str, Any]:
+    """`MEASure:CURRent?` (printed p30)."""
+    return it8813.measure_current()
+
+
+@mcp.tool(name="it8813_measure_power", annotations=READ_ONLY)
+def it8813_measure_power() -> dict[str, Any]:
+    """Measured power (printed p31).
+
+    The guide lists **no** `MEASure:POWer?` - only `FETCh:POWer?` exists - so this
+    returns the most recent measurement rather than triggering a new one. Sending the
+    MEASure form leaves the instrument silent and times the read out.
+    """
+    return it8813.measure_power()
+
+
+@mcp.tool(name="it8813_measure_all", annotations=READ_ONLY)
+def it8813_measure_all() -> dict[str, Any]:
+    """Voltage, current and power from the load's own measurement path."""
+    return {
+        "voltage_v": it8813.measure_voltage()["voltage_v"],
+        "current_a": it8813.measure_current()["current_a"],
+        "power_w": it8813.measure_power()["power_w"],
+    }
+
+
+@mcp.tool(name="it8813_fetch_voltage", annotations=READ_ONLY)
+def it8813_fetch_voltage() -> dict[str, Any]:
+    """`FETCh:VOLTage?` - last reading without triggering (printed p29)."""
+    return it8813.fetch_voltage()
+
+
+@mcp.tool(name="it8813_fetch_current", annotations=READ_ONLY)
+def it8813_fetch_current() -> dict[str, Any]:
+    """`FETCh:CURRent?` (printed p30)."""
+    return it8813.fetch_current()
+
+
+@mcp.tool(name="it8813_fetch_power", annotations=READ_ONLY)
+def it8813_fetch_power() -> dict[str, Any]:
+    """`FETCh:POWer?` (printed p31)."""
+    return it8813.fetch_power()
+
+
+@mcp.tool(name="it8813_fetch_voltage_max", annotations=READ_ONLY)
+def it8813_fetch_voltage_max() -> dict[str, Any]:
+    """`FETCh:VOLTage:MAX?` - peak voltage of the last window (printed p29).
+
+    A different command from `it8813_measure_voltage_max`: `FETCh` returns the stored
+    last measurement, `MEASure` triggers a fresh one.
+    """
+    return it8813.fetch_voltage_max()
+
+
+@mcp.tool(name="it8813_fetch_voltage_min", annotations=READ_ONLY)
+def it8813_fetch_voltage_min() -> dict[str, Any]:
+    """`FETCh:VOLTage:MIN?` - lowest voltage of the last window (printed p30)."""
+    return it8813.fetch_voltage_min()
+
+
+@mcp.tool(name="it8813_fetch_current_max", annotations=READ_ONLY)
+def it8813_fetch_current_max() -> dict[str, Any]:
+    """`FETCh:CURRent:MAX?` - peak current of the last window (printed p30)."""
+    return it8813.fetch_current_max()
+
+
+@mcp.tool(name="it8813_fetch_current_min", annotations=READ_ONLY)
+def it8813_fetch_current_min() -> dict[str, Any]:
+    """`FETCh:CURRent:MIN?` - lowest current of the last window (printed p31)."""
+    return it8813.fetch_current_min()
+
+
+@mcp.tool(name="it8813_get_measurement_info", annotations=READ_ONLY)
+def it8813_get_measurement_info() -> dict[str, Any]:
+    """`MEASure:CAPability?`, `FETCh:CAPability?` and the measurement timer (printed p32)."""
+    return {
+        "capability": it8813.measure_capability(),
+        "fetch_capability": it8813.fetch_capability(),
+        "time": it8813.measure_time(),
+    }
+
+
+@mcp.tool(name="it8813_trigger", annotations=STATE_CHANGE)
+def it8813_trigger() -> dict[str, Any]:
+    """`TRIGger[:IMMediate]` - generate a trigger now (printed p33)."""
+    return it8813.trigger()
+
+
+@mcp.tool(name="it8813_set_trigger_source", annotations=STATE_CHANGE)
+def it8813_set_trigger_source(source: str) -> dict[str, Any]:
+    """`TRIGger:SOURce` - BUS, EXTernal, HOLD, MANUal or TIMer (printed p33).
+
+    `EXTernal` needs the rear-panel trigger terminals, which are **out of scope this
+    round**: the value is accepted because the instrument documents it, and the reply
+    flags it rather than pretending it was verified.
+    """
+    return it8813.set_trigger_source(source)
+
+
+@mcp.tool(name="it8813_set_trigger_timer", annotations=STATE_CHANGE)
+def it8813_set_trigger_timer(seconds: float) -> dict[str, Any]:
+    """`TRIGger:TIMer` - 0.01 to 999.99 s (printed p34)."""
+    return it8813.set_trigger_timer(seconds)
+
+
+@mcp.tool(name="it8813_set_sense_average", annotations=STATE_CHANGE)
+def it8813_set_sense_average(
+    count: int, voltage1_v: float | None = None, voltage2_v: float | None = None
+) -> dict[str, Any]:
+    """`SENSe:AVERage:COUNt` and `SENSe:TIME:VOLTage1|VOLTage2` (printed p76).
+
+    These shape the measurement path; they are not the out-of-scope remote-sense
+    terminals, which have their own commands and no tool here.
+    """
+    result: dict[str, Any] = {"average_count": it8813.set_sense_average_count(count)}
+    if voltage1_v is not None:
+        result["voltage1"] = it8813.set_sense_time_voltage(1, voltage1_v)
+    if voltage2_v is not None:
+        result["voltage2"] = it8813.set_sense_time_voltage(2, voltage2_v)
+    return result
+
+
+@mcp.tool(name="it8813_get_status_registers", annotations=READ_ONLY)
+def it8813_get_status_registers() -> dict[str, Any]:
+    """Read the questionable and operation status registers (printed p19-22).
+
+    Note that reading `STATus:QUEStionable?` / `STATus:OPERation?` clears the event
+    registers, per the guide.
+    """
+    return {
+        "questionable": it8813.status_questionable(),
+        "questionable_condition": it8813.status_questionable_condition(),
+        "operation": it8813.status_operation(),
+        "operation_condition": it8813.status_operation_condition(),
+    }
+
+
+@mcp.tool(name="it8813_set_status_enable", annotations=STATE_CHANGE)
+def it8813_set_status_enable(
+    questionable: int | None = None,
+    questionable_ptr: int | None = None,
+    questionable_ntr: int | None = None,
+    operation: int | None = None,
+) -> dict[str, Any]:
+    """Set the status enable and transition registers, each 0-65535 (printed p19-22)."""
+    result: dict[str, Any] = {}
+    if questionable is not None:
+        result["questionable_enable"] = it8813.set_status_questionable_enable(questionable)
+    if questionable_ptr is not None:
+        result["questionable_ptransition"] = it8813.set_status_questionable_ptransition(
+            questionable_ptr
+        )
+    if questionable_ntr is not None:
+        result["questionable_ntransition"] = it8813.set_status_questionable_ntransition(
+            questionable_ntr
+        )
+    if operation is not None:
+        result["operation_enable"] = it8813.set_status_operation_enable(operation)
+    return result
+
+
+@mcp.tool(name="it8813_status_preset", annotations=STATE_CHANGE)
+def it8813_status_preset() -> dict[str, Any]:
+    """`STATus:PRESet` (printed p23)."""
+    return it8813.status_preset()
+
+
+@mcp.tool(name="it8813_set_trace", annotations=STATE_CHANGE)
+def it8813_set_trace(
+    points: int | None = None,
+    feed: str | None = None,
+    feed_control: str | None = None,
+    filter_enabled: bool | None = None,
+    delay_s: float | None = None,
+    timer_s: float | None = None,
+) -> dict[str, Any]:
+    """Configure the trace recorder: `TRACe:POINts/FEED/FEED:CONTrol/FILTer/DELay/TIMer`.
+
+    Points 2-1000, feed VOLTage/CURRent/TWO, control NEVer/NEXT (printed p35-38).
+    """
+    result: dict[str, Any] = {}
+    if points is not None:
+        result["points"] = it8813.set_trace_points(points)
+    if feed is not None:
+        result["feed"] = it8813.set_trace_feed(feed)
+    if feed_control is not None:
+        result["feed_control"] = it8813.set_trace_feed_control(feed_control)
+    if filter_enabled is not None:
+        result["filter"] = it8813.set_trace_filter(filter_enabled)
+    if delay_s is not None:
+        result["delay"] = it8813.set_trace_delay(delay_s)
+    if timer_s is not None:
+        result["timer"] = it8813.set_trace_timer(timer_s)
+    return result
+
+
+@mcp.tool(name="it8813_get_trace_settings", annotations=READ_ONLY)
+def it8813_get_trace_settings() -> dict[str, Any]:
+    """Read the trace configuration and the free buffer space (printed p35-38)."""
+    return {
+        "points": it8813.trace_points_query(),
+        "feed": it8813.trace_feed_query(),
+        "feed_control": it8813.trace_feed_control_query(),
+        "filter": it8813.trace_filter_query(),
+        "delay_s": it8813.trace_delay_query(),
+        "timer_s": it8813.trace_timer_query(),
+        "free": it8813.trace_free(),
+    }
+
+
+@mcp.tool(name="it8813_clear_trace", annotations=STATE_CHANGE)
+def it8813_clear_trace() -> dict[str, Any]:
+    """`TRACe:CLEar` (printed p35)."""
+    return it8813.trace_clear()
+
+
+@mcp.tool(name="it8813_read_trace", annotations=READ_ONLY)
+def it8813_read_trace() -> dict[str, Any]:
+    """`TRACe:DATA?` - the captured trace (printed p37).
+
+    Returned as text because the guide does not document an IEEE 488.2 block header for
+    this response.
+    """
+    return it8813.trace_data()
+
+
+@mcp.tool(name="it8813_set_list", annotations=STATE_CHANGE)
+def it8813_set_list(
+    range_value: float | None = None,
+    count: int | None = None,
+    steps: int | None = None,
+) -> dict[str, Any]:
+    """Configure the list engine: `LIST:RANGe`, `LIST:COUNt` (1-65536), `LIST:STEP` (2-84).
+
+    Steps are 1-based when setting levels and widths with `it8813_set_list_step`
+    (printed p71-72).
+    """
+    result: dict[str, Any] = {}
+    if range_value is not None:
+        result["range"] = it8813.set_list_range(range_value)
+    if count is not None:
+        result["count"] = it8813.set_list_count(count)
+    if steps is not None:
+        result["steps"] = it8813.set_list_steps(steps)
+    return result
+
+
+@mcp.tool(name="it8813_set_list_step", annotations=STATE_CHANGE)
+def it8813_set_list_step(
+    step: int,
+    level: float | None = None,
+    slew: float | None = None,
+    width_s: float | None = None,
+) -> dict[str, Any]:
+    """Set one list step's level, slew and width (printed p72-73).
+
+    `step` is 1-based, as the guide's "1 to steps" states.
+    """
+    result: dict[str, Any] = {"step": step}
+    if level is not None:
+        result["level"] = it8813.set_list_level(step, level)
+    if slew is not None:
+        result["slew"] = it8813.set_list_slew(step, slew)
+    if width_s is not None:
+        result["width"] = it8813.set_list_width(step, width_s)
+    return result
+
+
+@mcp.tool(name="it8813_get_list_settings", annotations=READ_ONLY)
+def it8813_get_list_settings() -> dict[str, Any]:
+    """Read the list range, count and step count (printed p71-72)."""
+    return {
+        "range": it8813.list_range_query(),
+        "count": it8813.list_count_query(),
+        "steps": it8813.list_steps_query(),
+    }
+
+
+@mcp.tool(name="it8813_get_list_step", annotations=READ_ONLY)
+def it8813_get_list_step(step: int) -> dict[str, Any]:
+    """Read one list step's level (printed p72). `step` is 1-based."""
+    return it8813.list_level_query(step)
+
+
+@mcp.tool(name="it8813_save_list", annotations=STATE_CHANGE)
+def it8813_save_list(bank: int) -> dict[str, Any]:
+    """`LIST:SAV` - store the list in bank 1-7 (printed p74)."""
+    return it8813.save_list(bank)
+
+
+@mcp.tool(name="it8813_recall_list", annotations=STATE_CHANGE)
+def it8813_recall_list(bank: int) -> dict[str, Any]:
+    """`LIST:RCL` - recall a stored list from bank 1-7 (printed p74)."""
+    return it8813.recall_list(bank)
+
+
+@mcp.tool(name="it8813_save_state", annotations=STATE_CHANGE)
+def it8813_save_state(register: int) -> dict[str, Any]:
+    """`*SAV <NRf>` 0-9 - store the present setup (printed p81)."""
+    return it8813.save_state(register)
+
+
+@mcp.tool(name="it8813_recall_state", annotations=STATE_CHANGE)
+def it8813_recall_state(register: int, confirm: bool = False) -> dict[str, Any]:
+    """`*RCL <NRf>` 0-9 - recall a stored setup (printed p81). Guarded with `confirm=True`."""
+    return it8813.recall_state(register, confirm=confirm)
+
+
+@mcp.tool(name="it8813_self_test", annotations=READ_ONLY)
+def it8813_self_test() -> dict[str, Any]:
+    """`*TST?` - 0 means passed (printed p83)."""
+    return it8813.self_test()
+
+
+@mcp.tool(name="it8813_get_identity_info", annotations=READ_ONLY)
+def it8813_get_identity_info() -> dict[str, Any]:
+    """Identity plus the SCPI version and the standard event status (printed p24-25, p78)."""
+    return {
+        "identity": it8813.identify(),
+        "scpi_version": it8813.scpi_version(),
+        "event_status": it8813.event_status(),
+        "status_byte": it8813.status_byte(),
+    }
+
+
+@mcp.tool(name="it8813_query_scpi", annotations=READ_ONLY)
+def it8813_query_scpi(command: str) -> dict[str, Any]:
+    """Send any documented read-only query from the programming guide.
+
+    This is the complete entry point for the documented command set, so a command with
+    no dedicated typed tool is still reachable. Queries only; use `it8813_write_scpi`
+    for settings.
+    """
+    text = command.strip()
+    if not text.endswith("?"):
+        raise ValueError("it8813_query_scpi expects a query ending in '?'")
+    return {"command": text, "response": it8813._query(text)}
+
+
+@mcp.tool(name="it8813_write_scpi", annotations=STATE_CHANGE_DESTRUCTIVE)
+def it8813_write_scpi(command: str, confirm_unsafe: bool = False) -> dict[str, Any]:
+    """Send any documented setting command from the programming guide.
+
+    This bypasses the typed tools by design, so it **does not** apply the test-phase
+    current and power ceilings, nor the input-enable confirmation. It refuses to run
+    unless `confirm_unsafe=True`.
+    """
+    if not confirm_unsafe:
+        raise ValueError(
+            "raw writes bypass the test-phase ceilings and the input guard; use the "
+            "typed tools, or pass confirm_unsafe=True if a documented command is "
+            "genuinely needed"
+        )
+    text = command.strip()
+    if text.endswith("?"):
+        raise ValueError("it8813_write_scpi expects a setting command, not a query")
+    it8813.write(text)
+    return {"command": text}
+
+
 def main() -> None:
     transport = os.getenv("LAB_EQUIPMENT_MCP_TRANSPORT", "stdio")
     if transport not in {"stdio", "sse", "streamable-http"}:
@@ -2377,6 +3406,7 @@ atexit.register(sdg1062x_backend.disconnect)
 atexit.register(agilentdsox2012a_backend.disconnect)
 atexit.register(m8811.disconnect)
 atexit.register(fluke8808a.disconnect)
+atexit.register(it8813.disconnect)
 
 
 if __name__ == "__main__":

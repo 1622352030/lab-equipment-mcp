@@ -25,6 +25,7 @@ Repository: <https://github.com/1622352030/lab-equipment-mcp>
 | Maynuo | [M8811](docs/maynuo/M8811.md) | M133/compatible USB-TTL, M131/RS-232, M132/RS-485 | CH340 USB-TTL identity, settings, safety guards, and FIX/LIST output with internal measurements under a 200-ohm load hardware-tested; M131/M132 untested |
 | Fluke | [8808A](docs/fluke/8808A.md) | RS-232 (DB9, via a USB-to-serial adapter) | Identity with redacted serial, the two-message reply protocol, every write path (function/range/rate/format/modifier/compare/trigger/save-recall/`*RST`/remote-local), front-panel echo, dual display and closed-loop measurement against an SDG1062X all hardware-verified; external trigger types 2-5, `*TST?` (not implemented on that firmware) and bus SRQ untested |
 | ITECH | [IT7321](docs/itech/IT7321.md) | LAN socket (default port 30000) | Identity with redacted serial, remote/local mode, the single-session LAN protocol, voltage and frequency read-back, a **three-layer 30 V output ceiling** (including the instrument itself rejecting over-voltage), closed-loop measurement by an 8808A (5/10/20/30 V within 1%), **live over-voltage protection** (output cut in 52 ms), **list ladders** (4 steps 5/10/15/20 V), **sweep ladders** (5 V start, 5 V step, 20 V end), **leading- and trailing-edge dimming** (verified by scope sampling), and the instrument's own measurement against the 8808A all hardware-verified; current-protection trip is out of scope this round (no load connected), BNC and three-phase are not fitted to this model, and `VOLT:UNIT` read-back is a firmware limitation |
+| ITECH | [IT8813](docs/itech/IT8813.md) | USB Type-B (**USBTMC**), RS-232 (DB-9) | Identity with redacted serial, remote mode, **input enable with read-back**, CC setpoint, **OCP and OPP protection settings**, the load's own voltage/current/power measurement, and a **closed-loop loaded acceptance against an M8811 DC source** (5 V / 0.1 A, current readings agreeing to **0.00%** and voltage to 0.12%) all hardware-verified; transients, List, Trace, SENSe, trigger and display are implemented but untested, RS-232 was not wired this round, and the rear-panel current-monitoring, remote-sense, external-trigger, 0-10 V analogue and external signal control interfaces are **out of scope this round** |
 
 The DPO2012B uses its rear USB Type-B device port for USBTMC/VISA. The programming manual also
 documents Ethernet/VXI-11 with the optional DPO2CONN module and GPIB through a TEK-USB-488 adapter.
@@ -51,6 +52,15 @@ mask, gateway and port are front-panel only (`Shift`+`Menu`, `System`,
 address in the same subnet, and the instrument **accepts only one TCP session at a
 time**. Remote control also requires `SYST:REM` first - without it every set command
 is rejected while queries still answer. See the [IT7321 guide](docs/itech/IT7321.md).
+
+The IT8813's USB Type-B port is **USBTMC** (USB488) - Windows lists it as a
+`USB Test and Measurement Device` and it is reached as `USB...::INSTR`, **not a virtual
+COM port**. The same model also carries a DB-9 RS-232 port whose baud rate, parity and
+flow control are front-panel only and cannot be read back; that interface was not wired
+this round. **The load input is energised only after an explicit confirmation**, and the
+integration carries a **1 A / 30 W** software ceiling. The rear-panel current-monitoring,
+remote-sense, external-trigger, 0-10 V analogue and external signal control interfaces are
+**out of scope this round**. See the [IT8813 guide](docs/itech/IT8813.md).
 
 ## Project Structure
 
@@ -82,7 +92,8 @@ src/lab_equipment_mcp/
 |       `-- fluke_8808a.py       # 8808A functions, ranges, modifiers, measurements
 |   `-- itech/
 |       |-- diagnostics.py       # LAN subnet check and socket identity probe
-|       `-- it7321.py            # IT7321 AC source SCPI and 30 V output ceiling
+|       |-- it7321.py            # IT7321 AC source SCPI and 30 V output ceiling
+|       `-- it8813.py            # IT8813 load SCPI, both interfaces, input-enable guard
 `-- server.py                    # MCP tool registration
 ```
 
@@ -652,6 +663,50 @@ external trigger is out of scope; `VOLT:UNIT` read-back is a firmware limitation
 LAN settings are front-panel only.
 
 [IT7321 guide](docs/itech/IT7321.md).
+
+## ITECH IT8813 Tools
+
+The IT8813 is a 120 V / 6 A (60 A high range) / 750 W DC electronic load. Its USB
+Type-B port is **USBTMC** (USB488) - **not a virtual COM port** - and the same model also
+carries a DB-9 RS-232 port whose baud rate, parity and flow control are front-panel only
+and cannot be read back. The command set is standard SCPI.
+
+**The load input is energised only after an explicit confirmation**:
+`it8813_set_input(..., confirm_enable=true)`. Enabling the input puts the load across
+whatever source is wired to the terminals, which is the one action here that moves real
+energy. The integration also carries a **1 A / 30 W** software ceiling (override with
+`LAB_EQUIPMENT_IT8813_MAX_CURRENT_A` / `_MAX_POWER_W`; **raising it needs the user's
+agreement**). `it8813_set_input_short` (a deliberate short) and `it8813_write_scpi`
+(which bypasses every check) are gated separately, as are `reset`, `preset` and
+`recall_state`, which replace a verified setup.
+
+**Hardware-verified** (2026-09-21, firmware 1.39-1.42): identity with redacted serial,
+remote mode, input enable with read-back, CC setpoint, OCP and OPP protection settings,
+the load's own voltage/current/power measurement, and a **closed-loop loaded acceptance
+against an M8811 DC source** - source at 5 V with a 0.5 A limit and 20 V over-voltage
+protection, load sinking 0.1 A in CC, **current readings agreeing to 0.00%** and voltage
+to 0.12%, with empty error queues on both sides.
+
+**Out of scope this round**: the features behind the rear-panel current-monitoring,
+remote-sense, external-trigger, 0-10 V analogue and external signal control interfaces.
+No tool is exposed for them, and they are recorded as out of scope rather than as
+capabilities the model lacks. GPIB belongs to the `(G)` variants, so **this model has
+none**.
+
+- `it8813_diagnose_setup`, `it8813_connect`, `it8813_disconnect`, `it8813_identify`, `it8813_get_endpoint`
+- **safety**: `it8813_set_input`, `it8813_set_input_short`, `it8813_set_current`, `it8813_set_power`, `it8813_set_current_protection`, `it8813_set_power_protection`, `it8813_clear_protection`
+- state: `it8813_get_settings`, `it8813_get_errors`, `it8813_clear_errors`, `it8813_clear_system`, `it8813_press_key`, `it8813_get_identity_info`, `it8813_self_test`, `it8813_get_status_registers`, `it8813_set_status_enable`, `it8813_status_preset`
+- system: `it8813_reset`, `it8813_preset`, `it8813_set_remote`, `it8813_set_display_text`, `it8813_set_display_mode`, `it8813_save_state`, `it8813_recall_state`
+- function and input: `it8813_set_function`, `it8813_get_function`, `it8813_set_function_mode`, `it8813_get_input`, `it8813_set_input_timer`, `it8813_set_transient_state`
+- current: `it8813_get_current`, `it8813_set_current_range`, `it8813_get_current_protection`, `it8813_set_current_slew`, `it8813_set_current_transient`
+- voltage: `it8813_set_voltage`, `it8813_get_voltage`, `it8813_set_voltage_range`, `it8813_set_voltage_on`, `it8813_set_voltage_latch`, `it8813_set_voltage_transient`
+- resistance: `it8813_set_resistance`, `it8813_get_resistance`, `it8813_set_resistance_range`, `it8813_set_resistance_transient`, `it8813_set_resistance_features`
+- power: `it8813_set_power`, `it8813_get_power`, `it8813_set_power_range`, `it8813_get_power_protection`, `it8813_set_power_config`, `it8813_set_power_transient`
+- measurement: `it8813_measure_voltage`, `it8813_measure_current`, `it8813_measure_power`, `it8813_measure_all`, `it8813_fetch_voltage`, `it8813_fetch_current`, `it8813_fetch_power`, `it8813_fetch_voltage_max`, `it8813_fetch_voltage_min`, `it8813_fetch_current_max`, `it8813_fetch_current_min`, `it8813_get_measurement_info`
+- trigger / trace / list / sense: `it8813_trigger`, `it8813_set_trigger_source`, `it8813_set_trigger_timer`, `it8813_set_trace`, `it8813_get_trace_settings`, `it8813_clear_trace`, `it8813_read_trace`, `it8813_set_list`, `it8813_set_list_step`, `it8813_get_list_step`, `it8813_get_list_settings`, `it8813_save_list`, `it8813_recall_list`, `it8813_set_sense_average`
+- **complete entry point**: `it8813_query_scpi`, `it8813_write_scpi` (the latter requires `confirm_unsafe=true`)
+
+See the [IT8813 guide](docs/itech/IT8813.md).
 
 ## Add Another Device
 
