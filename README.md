@@ -137,6 +137,27 @@ Skill，供 Agent **使用**已接入的 ITECH IT8813 电子负载（而不是�
 使用 $operate-itech-it8813-load 用这台电子负载做一次带保护的分段拉载实验。
 ```
 
+### 把 Skill 安装到本机 Agent
+
+`install-codex.ps1` 只注册 MCP **服务器**，不安装 Skill —— 放在仓库里的 Skill
+必须复制到运行时扫描的目录，Agent 才看得见。用
+[`scripts/install-skills.ps1`](scripts/install-skills.ps1) 一键完成：
+
+```powershell
+scripts\install-skills.ps1                                   # 全部 Skill → 本机所有运行时
+scripts\install-skills.ps1 -Skill operate-itech-it8813-load   # 只装指定的
+scripts\install-skills.ps1 -SkipExisting                      # 不动已安装的
+scripts\install-skills.ps1 -Uninstall -Skill <名称>           # 卸载（必须点名，防误删）
+```
+
+| 目标 | 目录 |
+| --- | --- |
+| `dsh` | `%APPDATA%\dsh-desktop\harness\skills` |
+| `codex` | `%USERPROFILE%\.codex\skills` |
+
+目标目录**不存在时会被跳过**而不是被创建；安装后请新开一个任务（或重启运行时）
+让它重新扫描技能目录。
+
 ## 环境要求
 
 - Windows 10 或 Windows 11。

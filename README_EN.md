@@ -141,6 +141,27 @@ Example:
 Use $operate-itech-it8813-load to run a protected stepped-load experiment on this instrument.
 ```
 
+### Installing the Skills locally
+
+`install-codex.ps1` registers the MCP **server** only — it does not install Skills. A Skill that
+lives in this repository stays invisible to an Agent until its folder is copied into the directory
+that runtime scans. [`scripts/install-skills.ps1`](scripts/install-skills.ps1) does that:
+
+```powershell
+scripts\install-skills.ps1                                   # every Skill -> every local runtime
+scripts\install-skills.ps1 -Skill operate-itech-it8813-load   # just one
+scripts\install-skills.ps1 -SkipExisting                      # leave installed ones alone
+scripts\install-skills.ps1 -Uninstall -Skill <name>           # remove (must be named explicitly)
+```
+
+| Target | Directory |
+| --- | --- |
+| `dsh` | `%APPDATA%\dsh-desktop\harness\skills` |
+| `codex` | `%USERPROFILE%\.codex\skills` |
+
+A destination directory that does not exist is **skipped, never created**. Open a new task (or
+restart the runtime) afterwards so it rescans its skills directory.
+
 ## Requirements
 
 - Windows 10 or Windows 11.
